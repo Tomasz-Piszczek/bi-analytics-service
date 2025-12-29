@@ -17,4 +17,5 @@ public class ProductDto {
     private LocalDateTime purchaseDate;
     private BigDecimal quantity;
     private BigDecimal price;
+    private ProductGroupDto group;
 }
