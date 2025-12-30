@@ -5,21 +5,24 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "TwrGrupy")
+@Table(name = "TwrGrupy", schema = "CDN")
 @Getter
 @Setter
 public class TwrGrupa {
 
     @Id
-    @Column(name = "TG_ID")
+    @Column(name = "TwG_TwGID")
     private Integer id;
 
-    @Column(name = "TG_Kod", length = 50)
+    @Column(name = "TwG_Kod", length = 50)
     private String code;
 
-    @Column(name = "TG_Nazwa", length = 255)
+    @Column(name = "TwG_Nazwa", length = 255)
     private String name;
 
-    @Column(name = "TG_Opis", length = 500)
-    private String description;
+    @Column(name = "TwG_GIDNumer")
+    private Integer gidNumber;
+
+    @Column(name = "TwG_CzasModyfikacji")
+    private Integer modificationTime;
 }

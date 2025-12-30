@@ -5,8 +5,6 @@ import org.example.bianalyticsservice.controller.product.dto.ProductDto;
 import org.example.bianalyticsservice.controller.product.dto.ProductGroupDto;
 import org.example.bianalyticsservice.repository.ProductRepository;
 import org.example.bianalyticsservice.repository.TwrGrupaRepository;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -20,8 +18,8 @@ public class ProductService {
     private final TwrGrupaRepository twrGrupaRepository;
     
 
-    public Page<ProductDto> findAllProductsWithResources(Pageable pageable, boolean filterQuantity, Integer groupId) {
-        return productRepository.findAllProductsWithResourcesByGroup(pageable, filterQuantity, groupId);
+    public List<ProductDto> findAllProductsWithResources(boolean filterQuantity, Integer groupId) {
+        return productRepository.findAllProductsWithResourcesByGroup(filterQuantity, groupId);
     }
     
     public List<ProductGroupDto> findAllGroups() {
@@ -30,7 +28,6 @@ public class ProductService {
                         .id(group.getId())
                         .code(group.getCode())
                         .name(group.getName())
-                        .description(group.getDescription())
                         .build())
                 .collect(Collectors.toList());
     }

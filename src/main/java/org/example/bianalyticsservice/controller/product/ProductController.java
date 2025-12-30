@@ -5,8 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.bianalyticsservice.controller.product.dto.ProductDto;
 import org.example.bianalyticsservice.controller.product.dto.ProductGroupDto;
 import org.example.bianalyticsservice.service.ProductService;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,12 +22,11 @@ public class ProductController {
     private final ProductService productService;
     
     @GetMapping
-    public ResponseEntity<Page<ProductDto>> findAllProducts(
-            Pageable pageable, 
+    public ResponseEntity<List<ProductDto>> findAllProducts(
             @RequestParam(defaultValue = "true") boolean filterQuantity,
             @RequestParam(required = false) Integer groupId) {
-        log.info("[findAllProducts] Getting all products with pagination: {}, filterQuantity: {}, groupId: {}", pageable, filterQuantity, groupId);
-        return ResponseEntity.ok(productService.findAllProductsWithResources(pageable, filterQuantity, groupId));
+        log.info("[findAllProducts] Getting all products with filterQuantity: {}, groupId: {}", filterQuantity, groupId);
+        return ResponseEntity.ok(productService.findAllProductsWithResources(filterQuantity, groupId));
     }
     
     @GetMapping("/groups")

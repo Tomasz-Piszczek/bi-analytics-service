@@ -7,28 +7,28 @@ import lombok.Setter;
 import java.math.BigDecimal;
 
 @Entity
-@Table(name = "Towary")
+@Table(name = "Towary", schema = "CDN")
 @Getter
 @Setter
 public class Towar {
 
     @Id
-    @Column(name = "TW_ID")
+    @Column(name = "Twr_TwrId")
     private Integer id;
 
-    @Column(name = "TW_Kod", length = 50)
+    @Column(name = "Twr_Kod", length = 50)
     private String code;
 
-    @Column(name = "TW_Nazwa", length = 255)
+    @Column(name = "Twr_Nazwa", length = 255)
     private String name;
 
-    @Column(name = "TW_JM", length = 20)
+    @Column(name = "Twr_JM", length = 20)
     private String unitOfMeasure;
 
-    @Column(name = "TW_GrupaId")
+    @Column(name = "Twr_TwGGIDNumer")
     private Integer groupId;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "TW_GrupaId", insertable = false, updatable = false)
+    @JoinColumn(name = "Twr_TwGGIDNumer", referencedColumnName = "TwG_GIDNumer", insertable = false, updatable = false)
     private TwrGrupa group;
 }

@@ -2,8 +2,7 @@ package org.example.bianalyticsservice.repository;
 
 import org.example.bianalyticsservice.controller.product.dto.ProductDto;
 import org.example.bianalyticsservice.model.Products;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -20,11 +19,11 @@ public interface ProductRepository extends JpaRepository<Products, Integer> {
                 z.purchaseDate, 
                 z.quantity, 
                 z.price,
-                new org.example.bianalyticsservice.controller.product.dto.ProductGroupDto(
+                new org.example.bianalyticsservice.controller.product.dto.ProductGroupDto
+                (
                     g.id,
                     g.code,
-                    g.name,
-                    g.description
+                    g.name
                 )
             )
             FROM Products t 
@@ -34,5 +33,5 @@ public interface ProductRepository extends JpaRepository<Products, Integer> {
             AND (:groupId IS NULL OR t.groupId = :groupId)
             ORDER BY t.id, z.purchaseDate DESC
             """)
-    Page<ProductDto> findAllProductsWithResourcesByGroup(Pageable pageable, @Param("filterQuantity") boolean filterQuantity, @Param("groupId") Integer groupId);
+    List<ProductDto> findAllProductsWithResourcesByGroup(@Param("filterQuantity") boolean filterQuantity, @Param("groupId") Integer groupId);
 }
