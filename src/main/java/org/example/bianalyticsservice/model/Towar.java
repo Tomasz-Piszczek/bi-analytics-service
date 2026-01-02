@@ -29,6 +29,6 @@ public class Towar {
     private Integer groupId;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "Twr_TwGGIDNumer", referencedColumnName = "TwG_GIDNumer", insertable = false, updatable = false)
+    @JoinColumn(name = "Twr_TwGGIDNumer", referencedColumnName = "TwG_TwGID", insertable = false, updatable = false)
     private TwrGrupa group;
 }

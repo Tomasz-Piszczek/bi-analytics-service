@@ -23,11 +23,11 @@ public class ProductService {
     }
     
     public List<ProductGroupDto> findAllGroups() {
-        return twrGrupaRepository.findAllByOrderByName().stream()
+        return twrGrupaRepository.findGroupsWithProducts().stream()
                 .map(group -> ProductGroupDto.builder()
-                        .id(group.getId())
+                        .id(group.getGidNumber())
                         .code(group.getCode())
-                        .name(group.getName())
+                        .name(group.getCode())
                         .build())
                 .collect(Collectors.toList());
     }
