@@ -30,8 +30,8 @@ aws:
   secret-key: ${AWS_SECRET_KEY}
 
 sqs:
-  local-uri: ${SQS_LOCAL_URI:}
-  launch-localstack: ${SQS_LAUNCH_LOCALSTACK:false}
+  local-uri: ""
+  launch-localstack: false
   url:
     write:
-      employeeChangeQueue: ${SQS_EMPLOYEE_CHANGE_QUEUE_URL}
+      employeeChangeQueue: ${SQS_EMPLOYEE_CHANGE_QUEUE_URL:https://sqs.eu-central-1.amazonaws.com/886360753429/employeeChangeQueue}

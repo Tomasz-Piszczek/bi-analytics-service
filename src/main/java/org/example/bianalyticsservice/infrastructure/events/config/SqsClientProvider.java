@@ -26,7 +26,7 @@ public class SqsClientProvider {
     @Bean
     public SqsAsyncClient sqsAsyncClient() {
         var builder = SqsAsyncClient.builder()
-                .region(Region.US_WEST_2)
+                .region(Region.EU_CENTRAL_1)
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(accessKey, secretKey)));
 
@@ -40,7 +40,7 @@ public class SqsClientProvider {
     @Bean
     public SnsAsyncClient snsAsyncClient() {
         var builder = SnsAsyncClient.builder()
-                .region(Region.US_WEST_2)
+                .region(Region.EU_CENTRAL_1)
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(accessKey, secretKey)));
 

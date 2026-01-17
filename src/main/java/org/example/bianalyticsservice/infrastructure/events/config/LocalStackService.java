@@ -89,6 +89,11 @@ public class LocalStackService {
 
     private void startLocalStackContainer() {
         try {
+            ProcessBuilder removeBuilder = new ProcessBuilder("docker", "rm", "-f", "localstack-bi-analytics");
+            Process removeProcess = removeBuilder.start();
+            removeProcess.waitFor(5, TimeUnit.SECONDS);
+
+
             ProcessBuilder processBuilder = new ProcessBuilder(
                 "docker", "run", "-d",
                 "--name", "localstack-bi-analytics",
@@ -98,17 +103,17 @@ public class LocalStackService {
                 "-e", "HOSTNAME_EXTERNAL=localhost",
                 "localstack/localstack:latest"
             );
-            
+
             localStackProcess = processBuilder.start();
-            
+
             BufferedReader reader = new BufferedReader(new InputStreamReader(localStackProcess.getInputStream()));
             String containerId = reader.readLine();
-            
+
             if (containerId != null) {
                 log.info("LocalStack container started with ID: {}", containerId.substring(0, 12));
             }
-            
-        } catch (IOException e) {
+
+        } catch (Exception e) {
             log.error("Failed to start LocalStack container: {}", e.getMessage());
             throw new RuntimeException("Failed to start LocalStack", e);
         }
