@@ -22,7 +22,7 @@ cors:
 
 app:
   jwt:
-    secret: ${JWT_SECRET}
+    secret: ${JWT_SECRET:myVerySecretKeyForJWTTokensThatShouldBeAtLeast32Characters}
     expiration: 86400000
 
 aws:
