@@ -21,7 +21,7 @@ public class ProductResources {
     private Integer id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "TwZ_TwrId", nullable = false)
+    @JoinColumn(name = "TwZ_TwrId", referencedColumnName = "Twr_TwrId", nullable = false)
     private Products product;
 
     @Column(name = "TwZ_Ilosc", nullable = false)

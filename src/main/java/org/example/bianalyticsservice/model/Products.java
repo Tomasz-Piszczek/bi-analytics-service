@@ -27,6 +27,13 @@ public class Products {
     @Column(name = "Twr_Nazwa", length = 255, nullable = false)
     private String name;
 
+    @Column(name = "Twr_TwGGIDNumer")
+    private Integer groupId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "Twr_TwGGIDNumer", referencedColumnName = "TwG_GIDNumer", insertable = false, updatable = false)
+    private TwrGrupa group;
+
     @OneToMany(mappedBy = "product", fetch = FetchType.LAZY)
     private List<ProductResources> quantities;
 }
