@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: bi-analytics-service
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=MSSQLServer;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        globally_quoted_identifiers: true
+    show-sql: true
+  h2:
+    console:
+      enabled: true
+server:
+  port: 0
+app:
+  jwt:
+    secret: test-secret-key-for-testing-purposes-only
+    expiration: 86400000

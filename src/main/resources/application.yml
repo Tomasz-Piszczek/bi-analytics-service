@@ -1,0 +1,37 @@
+spring:
+  application:
+    name: bi-analytics-service
+  datasource:
+    url: jdbc:sqlserver://localhost:1433;databaseName=CDN_F_P_U_H__Piszczek;encrypt=true;trustServerCertificate=true
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+    username: myapp
+    password: YourPassword123!
+  jpa:
+    hibernate:
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.SQLServerDialect
+        globally_quoted_identifiers: true
+server:
+  port: 8081
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://localhost:5174,http://localhost:5175}
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration: 86400000
+
+aws:
+  access-key: ${AWS_ACCESS_KEY}
+  secret-key: ${AWS_SECRET_KEY}
+
+sqs:
+  local-uri: ""
+  launch-localstack: false
+  url:
+    write:
+      employeeChangeQueue: ${SQS_EMPLOYEE_CHANGE_QUEUE_URL:https://sqs.eu-central-1.amazonaws.com/886360753429/employeeChangeQueue}

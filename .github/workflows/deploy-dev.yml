@@ -102,7 +102,7 @@ jobs:
           docker run -d \
             --name bi-analytics-service \
             --restart unless-stopped \
-            -p 8080:8080 \
+            -p 8081:8081 \
             --env-file /home/ec2-user/apps/bi-analytics/.env \
             bi-analytics-service:latest
           
@@ -112,7 +112,7 @@ jobs:
           echo "Starting health check loop - checking every 5 seconds for up to 5 minutes..."
           for i in {1..60}; do
             echo "Health check attempt $i of 60..."
-            if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+            if curl -f -s http://localhost:8081/actuator/health > /dev/null 2>&1; then
               echo "Health check successful! Application is ready."
               break
             fi
