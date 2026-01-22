@@ -55,6 +55,8 @@ jobs:
             --name bi-analytics-service \
             --restart unless-stopped \
             -p 8081:8081 \
+            --memory="390m" \
+            --memory-swap="390m" \
             --env-file /home/ec2-user/apps/bi-analytics/.env \
             bi-analytics-service:latest
           
