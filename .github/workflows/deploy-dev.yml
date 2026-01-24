@@ -32,8 +32,8 @@ jobs:
 
       - name: Copy files to EC2
         env:
-          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY_BI }}
+          EC2_HOST: ${{ secrets.EC2_HOST_BI }}
         run: |
           echo "$EC2_SSH_KEY" > ec2-key.pem
           chmod 600 ec2-key.pem
@@ -55,9 +55,12 @@ jobs:
             --name bi-analytics-service \
             --restart unless-stopped \
             -p 8081:8081 \
-            --memory="390m" \
-            --memory-swap="390m" \
             --env-file /home/ec2-user/apps/bi-analytics/.env \
+            --log-driver=awslogs \
+            --log-opt awslogs-region=eu-central-1 \
+            --log-opt awslogs-group=/apps/bi-analytics-service \
+            --log-opt awslogs-stream-prefix=bi-analytics \
+            --log-opt awslogs-create-group=true \
             bi-analytics-service:latest
           
           echo "Waiting for application to start..."
