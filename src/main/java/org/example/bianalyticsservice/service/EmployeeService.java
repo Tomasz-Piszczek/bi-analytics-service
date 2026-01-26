@@ -2,6 +2,7 @@ package org.example.bianalyticsservice.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.example.bianalyticsservice.controller.employee.dto.DailyHoursDto;
 import org.example.bianalyticsservice.controller.employee.dto.EmployeeDto;
 import org.example.bianalyticsservice.controller.employee.dto.EmployeeHoursDto;
 import org.example.bianalyticsservice.model.CtiZasob;
@@ -10,6 +11,7 @@ import org.example.bianalyticsservice.repository.CtiProdukcjaPanelRCPRepository;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.sql.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -33,17 +35,29 @@ public class EmployeeService {
 
     public EmployeeHoursDto getEmployeeHours(String employeeName, Integer year, Integer month) {
 
-        Double hours = ctiProdukcjaPanelRCPRepository.getHoursWorkedByEmployeeAndYearAndMonth(
+        BigDecimal hours = ctiProdukcjaPanelRCPRepository.getHoursWorkedByEmployeeAndYearAndMonth(
                 employeeName, year, month
         );
 
-        BigDecimal hoursWorked = hours != null ? BigDecimal.valueOf(hours) : BigDecimal.ZERO;
+        BigDecimal hoursWorked = hours != null ? hours : BigDecimal.ZERO;
+
+        List<Object[]> dailyHoursData = ctiProdukcjaPanelRCPRepository.getDailyHoursWorkedByEmployeeAndYearAndMonth(
+                employeeName, year, month
+        );
+
+        List<DailyHoursDto> dailyHours = dailyHoursData.stream()
+                .map(row -> DailyHoursDto.builder()
+                        .date(((Date) row[0]).toLocalDate())
+                        .hours((BigDecimal) row[1])
+                        .build())
+                .collect(Collectors.toList());
 
         return EmployeeHoursDto.builder()
                 .employeeName(employeeName)
                 .year(year)
                 .month(month)
                 .hours(hoursWorked)
+                .dailyHours(dailyHours)
                 .build();
     }
 

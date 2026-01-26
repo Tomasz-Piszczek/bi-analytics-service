@@ -34,8 +34,8 @@ sqs:
   launch-localstack: true
   url:
     write:
-      employeeChangeQueue: http://sqs.us-east-1.localhost.localstack.cloud:4567/000000000000/employeeChangeQueue
+      employeeChangeQueue: http://sqs.eu-central-1.localhost.localstack.cloud:4567/000000000000/employeeChangeQueue
 
 localstack:
   sqs:
-    employeeChangeQueue: http://sqs.us-east-1.localhost.localstack.cloud:4567/000000000000/employeeChangeQueue
+    employeeChangeQueue: http://sqs.eu-central-1.localhost.localstack.cloud:4567/000000000000/employeeChangeQueue

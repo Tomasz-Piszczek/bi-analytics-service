@@ -6,16 +6,13 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
-import java.util.List;
+import java.time.LocalDate;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class EmployeeHoursDto {
-    private String employeeName;
-    private Integer year;
-    private Integer month;
+public class DailyHoursDto {
+    private LocalDate date;
     private BigDecimal hours;
-    private List<DailyHoursDto> dailyHours;
 }
