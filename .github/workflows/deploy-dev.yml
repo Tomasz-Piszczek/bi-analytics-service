@@ -60,6 +60,7 @@ jobs:
             --log-opt awslogs-region=eu-central-1 \
             --log-opt awslogs-group=/apps/bi-analytics-service \
             --log-opt awslogs-create-group=true \
+            --log-opt awslogs-multiline-pattern='^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ]?[0-9]{2}:[0-9]{2}:[0-9]{2}' \
             bi-analytics-service:latest
           
           echo "Waiting for application to start..."

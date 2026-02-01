@@ -13,21 +13,24 @@ public interface ProductRepository extends JpaRepository<Products, Integer> {
 
     @Query(value = """
             SELECT new org.example.bianalyticsservice.controller.product.dto.ProductDto(
-                t.code, 
-                t.name, 
+                t.code,
+                t.name,
                 t.unitOfMeasure,
-                z.purchaseDate, 
-                z.quantity, 
+                z.purchaseDate,
+                z.quantity,
                 z.price,
                 new org.example.bianalyticsservice.controller.product.dto.ProductGroupDto
                 (
                     g.id,
                     g.code,
-                    g.name
+                    g.name,
+                    g.parentId,
+                    0,
+                    g.code
                 )
             )
-            FROM Products t 
-            LEFT JOIN t.quantities z 
+            FROM Products t
+            LEFT JOIN t.quantities z
             LEFT JOIN t.group g
             WHERE (:filterQuantity = false OR z.quantity > 0)
             AND (:groupId IS NULL OR t.groupId = :groupId)

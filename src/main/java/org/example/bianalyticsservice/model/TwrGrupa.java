@@ -3,9 +3,11 @@ package org.example.bianalyticsservice.model;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.SQLRestriction;
 
 @Entity
 @Table(name = "TwrGrupy", schema = "CDN")
+@SQLRestriction("TwG_GIDTyp = -16")
 @Getter
 @Setter
 public class TwrGrupa {
@@ -22,6 +24,9 @@ public class TwrGrupa {
 
     @Column(name = "TwG_GIDNumer")
     private Integer gidNumber;
+
+    @Column(name = "TwG_GrONumer")
+    private Integer parentId;
 
     @Column(name = "TwG_CzasModyfikacji")
     private Integer modificationTime;
