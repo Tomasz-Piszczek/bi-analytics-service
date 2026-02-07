@@ -49,6 +49,8 @@ public class EmployeeService {
                 .map(row -> DailyHoursDto.builder()
                         .date(((Date) row[0]).toLocalDate())
                         .hours((BigDecimal) row[1])
+                        .startTime(row[2] != null ? ((java.sql.Timestamp) row[2]).toLocalDateTime() : null)
+                        .endTime(row[3] != null ? ((java.sql.Timestamp) row[3]).toLocalDateTime() : null)
                         .build())
                 .collect(Collectors.toList());
 

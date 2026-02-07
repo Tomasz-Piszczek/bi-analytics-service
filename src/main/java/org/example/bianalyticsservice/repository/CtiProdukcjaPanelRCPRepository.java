@@ -69,7 +69,9 @@ public interface CtiProdukcjaPanelRCPRepository extends JpaRepository<CtiProdukc
             )
             SELECT
                 wh.WorkDate AS date,
-                SUM(wh.HoursWorked) AS hours
+                SUM(wh.HoursWorked) AS hours,
+                MIN(wh.StartTime) AS startTime,
+                MAX(wh.EndTime) AS endTime
             FROM WorkedHours wh
             JOIN CtiZasobPrc zp ON wh.IDPracownika = zp.ZsP_PrcId
             JOIN CtiZasob z ON zp.ZsP_CZID = z.CZ_ID

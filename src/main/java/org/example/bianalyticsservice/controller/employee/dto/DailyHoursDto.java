@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Data
 @Builder
@@ -15,4 +16,6 @@ import java.time.LocalDate;
 public class DailyHoursDto {
     private LocalDate date;
     private BigDecimal hours;
+    private LocalDateTime startTime;
+    private LocalDateTime endTime;
 }
