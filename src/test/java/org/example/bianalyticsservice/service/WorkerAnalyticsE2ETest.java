@@ -654,6 +654,391 @@ class WorkerAnalyticsE2ETest {
         assertEquals(0, cappedDays.size(), "No capped days in normal test data");
     }
 
+    // ─── TEST: group resource (Wycinanie) work attribution ────────────────
+    @Test
+    void groupResourceWork_shouldCountAsProductionButNotAffectSpeedIndex() {
+        // Scenario: Kowalski works 4h directly + 2h via Wycinanie (group resource) on same day
+        // Expected:
+        // - Total production: 6h (4h direct + 2h via group resource)
+        // - Speed index calculated only from 4h direct work
+        // - Idle = 8h attendance - 6h production = 2h
+
+        List<JobDto> jobs = new ArrayList<>();
+
+        // Direct work: 4 hours on RAMA-STALOWA (resourceId == workerId)
+        jobs.add(JobDto.builder()
+                .id(1)
+                .numerZlecenia("ZLC/2024/W01")
+                .date(DAY_1)
+                .productTypeId("RAMA-STALOWA")
+                .quantity(new BigDecimal("4"))
+                .totalMinutes(new BigDecimal("240")) // 4h total
+                .workers(List.of(
+                        WorkerTimeDto.builder()
+                                .workerId(WORKER_KOWALSKI)
+                                .resourceId(WORKER_KOWALSKI) // Direct work
+                                .workDate(DAY_1)
+                                .minutesWorked(new BigDecimal("240"))
+                                .build()
+                ))
+                .build());
+
+        // Group resource work: 2 hours via Wycinanie - should count as production but NOT affect speed index
+        jobs.add(JobDto.builder()
+                .id(2)
+                .numerZlecenia("ZLC/2024/W02")
+                .date(DAY_1)
+                .productTypeId("RAMA-STALOWA")
+                .quantity(new BigDecimal("2"))
+                .totalMinutes(new BigDecimal("120")) // 2h total
+                .workers(List.of(
+                        WorkerTimeDto.builder()
+                                .workerId(WORKER_KOWALSKI)
+                                .resourceId("Wycinanie") // Group resource work!
+                                .workDate(DAY_1)
+                                .minutesWorked(new BigDecimal("120"))
+                                .build()
+                ))
+                .build());
+
+        List<EmployeeHoursDto> attendance = List.of(
+                EmployeeHoursDto.builder()
+                        .employeeName(WORKER_KOWALSKI)
+                        .dailyHours(List.of(
+                                DailyHoursDto.builder().date(DAY_1).hours(new BigDecimal("8")).build()
+                        ))
+                        .build()
+        );
+
+        Map<String, Map<LocalDate, BigDecimal>> attendanceMap = calculator.buildAttendanceMap(attendance);
+        Map<String, BigDecimal> benchmarks = calculator.calculateBenchmarks(jobs);
+        List<WorkerStatsDto> stats = calculator.calculateAllWorkerStats(jobs, jobs, benchmarks, attendanceMap, false);
+
+        printResults("GROUP RESOURCE (WYCINANIE) TEST", stats, benchmarks);
+
+        assertEquals(1, stats.size());
+        WorkerStatsDto kowalski = stats.get(0);
+
+        // Verify presence (8h from attendance)
+        assertBDEquals("8.0", kowalski.getPresence(), "Presence should be 8h (from attendance)");
+
+        // Verify production includes BOTH direct and group resource work (4h + 2h = 6h)
+        assertBDEquals("6.0", kowalski.getProduction(), "Production should include group resource hours (4h + 2h = 6h)");
+
+        // Verify idle is calculated correctly (8h - 6h = 2h)
+        assertBDEquals("2.0", kowalski.getIdle(), "Idle should be 8h - 6h = 2h");
+
+        // Verify job count (2 jobs)
+        assertEquals(2, kowalski.getJobCount(), "Should count both jobs");
+
+        // Verify speed index is calculated ONLY from direct work (where resourceId == workerId)
+        // Direct work: 4h total, quantity 4, so 1h per unit
+        // Benchmark for RAMA-STALOWA: avg of (4h/4units + 2h/2units) = (1 + 1) / 2 = 1.0h/unit
+        // Expected/Actual for Kowalski: benchmark(1.0) * contribution(1.0) / actual(1.0) = 1.0
+        assertBDEquals("1.00", kowalski.getSpeedIndex(), "Speed index should be calculated only from direct work");
+    }
+
+    @Test
+    void groupResourceWork_mixedTeamWithGroupResource() {
+        // Scenario: Job with 2 workers, one working directly and one via group resource (Wycinanie)
+        // Both should get production credit, but only direct worker affects speed index
+
+        List<JobDto> jobs = new ArrayList<>();
+
+        // Mixed team job: Kowalski direct + Nowak via Wycinanie
+        jobs.add(JobDto.builder()
+                .id(1)
+                .numerZlecenia("ZLC/2024/MIX01")
+                .date(DAY_1)
+                .productTypeId("RAMA-STALOWA")
+                .quantity(new BigDecimal("4"))
+                .totalMinutes(new BigDecimal("240"))
+                .workers(Arrays.asList(
+                        WorkerTimeDto.builder()
+                                .workerId(WORKER_KOWALSKI)
+                                .resourceId(WORKER_KOWALSKI) // Direct work
+                                .workDate(DAY_1)
+                                .minutesWorked(new BigDecimal("120")) // 2h direct
+                                .build(),
+                        WorkerTimeDto.builder()
+                                .workerId(WORKER_NOWAK)
+                                .resourceId("Wycinanie") // Group resource work
+                                .workDate(DAY_1)
+                                .minutesWorked(new BigDecimal("120")) // 2h via group resource
+                                .build()
+                ))
+                .build());
+
+        List<EmployeeHoursDto> attendance = Arrays.asList(
+                EmployeeHoursDto.builder()
+                        .employeeName(WORKER_KOWALSKI)
+                        .dailyHours(List.of(DailyHoursDto.builder().date(DAY_1).hours(new BigDecimal("8")).build()))
+                        .build(),
+                EmployeeHoursDto.builder()
+                        .employeeName(WORKER_NOWAK)
+                        .dailyHours(List.of(DailyHoursDto.builder().date(DAY_1).hours(new BigDecimal("8")).build()))
+                        .build()
+        );
+
+        Map<String, Map<LocalDate, BigDecimal>> attendanceMap = calculator.buildAttendanceMap(attendance);
+        Map<String, BigDecimal> benchmarks = calculator.calculateBenchmarks(jobs);
+        List<WorkerStatsDto> stats = calculator.calculateAllWorkerStats(jobs, jobs, benchmarks, attendanceMap, false);
+
+        printResults("GROUP RESOURCE MIXED TEAM TEST", stats, benchmarks);
+
+        assertEquals(2, stats.size());
+
+        // Kowalski: direct work, should have speed index
+        WorkerStatsDto kowalski = findWorker(stats, WORKER_KOWALSKI);
+        assertNotNull(kowalski);
+        assertBDEquals("2.0", kowalski.getProduction(), "Kowalski production 2h");
+        assertNotNull(kowalski.getSpeedIndex(), "Kowalski should have speed index (direct work)");
+
+        // Nowak: group resource work only, should have NO speed index
+        WorkerStatsDto nowak = findWorker(stats, WORKER_NOWAK);
+        assertNotNull(nowak);
+        assertBDEquals("2.0", nowak.getProduction(), "Nowak production 2h (from group resource)");
+        assertNull(nowak.getSpeedIndex(), "Nowak should have NULL speed index (only group resource work)");
+        assertBDEquals("6.0", nowak.getIdle(), "Nowak idle = 8h - 2h = 6h");
+    }
+
+    // ─── TEST: worker+resource entries should show SAME totals for same day ──
+    @Test
+    void workerResourceEntries_sameDaySameWorker_shouldShowSameTotals() {
+        // Scenario: Kamil Rygiel works on the same day via two resources:
+        // - 4h production under his own name "Kamil Rygiel"
+        // - 2h production via "Wycinanie" (group resource)
+        // - 1h internal work under his own name
+        // Attendance: 9h
+        //
+        // Expected for BOTH "Kamil Rygiel (Kamil Rygiel)" AND "Kamil Rygiel (Wycinanie)":
+        // - attendance: 9h
+        // - production: 4h + 2h = 6h (total production by this person)
+        // - internal: 1h (total internal by this person)
+        // - idle: 9h - 6h - 1h = 2h
+        //
+        // This is because it's the SAME physical person - they can't be idle when working via another resource!
+
+        String workerId = "Kamil Rygiel";
+        String groupResource = "Wycinanie";
+        LocalDate day = LocalDate.of(2025, 11, 25);
+
+        List<JobDto> jobs = Arrays.asList(
+                // Job 1: Direct work (4h production)
+                JobDto.builder()
+                        .id(1)
+                        .numerZlecenia("ZP/001/2025")
+                        .date(day)
+                        .productTypeId("RAMA-STALOWA")
+                        .quantity(new BigDecimal("4"))
+                        .totalMinutes(new BigDecimal("240")) // 4h
+                        .workers(List.of(
+                                WorkerTimeDto.builder()
+                                        .workerId(workerId)
+                                        .resourceId(workerId) // Direct work
+                                        .workDate(day)
+                                        .minutesWorked(new BigDecimal("240"))
+                                        .build()
+                        ))
+                        .build(),
+
+                // Job 2: Via Wycinanie (2h production)
+                JobDto.builder()
+                        .id(2)
+                        .numerZlecenia("ZP/002/2025")
+                        .date(day)
+                        .productTypeId("RAMA-STALOWA")
+                        .quantity(new BigDecimal("2"))
+                        .totalMinutes(new BigDecimal("120")) // 2h
+                        .workers(List.of(
+                                WorkerTimeDto.builder()
+                                        .workerId(workerId)
+                                        .resourceId(groupResource) // Via Wycinanie
+                                        .workDate(day)
+                                        .minutesWorked(new BigDecimal("120"))
+                                        .build()
+                        ))
+                        .build(),
+
+                // Job 3: Internal work under own name (1h)
+                JobDto.builder()
+                        .id(3)
+                        .numerZlecenia("ZP/003/2025")
+                        .date(day)
+                        .productTypeId("PRACE WEWNĘTRZNE")
+                        .quantity(new BigDecimal("1"))
+                        .totalMinutes(new BigDecimal("60")) // 1h
+                        .workers(List.of(
+                                WorkerTimeDto.builder()
+                                        .workerId(workerId)
+                                        .resourceId(workerId) // Direct work
+                                        .workDate(day)
+                                        .minutesWorked(new BigDecimal("60"))
+                                        .build()
+                        ))
+                        .build()
+        );
+
+        List<EmployeeHoursDto> attendance = List.of(
+                EmployeeHoursDto.builder()
+                        .employeeName(workerId)
+                        .dailyHours(List.of(
+                                DailyHoursDto.builder().date(day).hours(new BigDecimal("9")).build()
+                        ))
+                        .build()
+        );
+
+        Map<String, Map<LocalDate, BigDecimal>> attendanceMap = calculator.buildAttendanceMap(attendance);
+        Map<String, BigDecimal> benchmarks = calculator.calculateBenchmarks(jobs);
+        List<WorkerStatsDto> stats = calculator.calculateAllWorkerStats(jobs, jobs, benchmarks, attendanceMap, false);
+
+        printResults("WORKER+RESOURCE SAME DAY TEST", stats, benchmarks);
+
+        // Should have 2 entries: one for direct work, one for Wycinanie
+        assertEquals(2, stats.size(), "Should have 2 entries (one per resource)");
+
+        // Find both entries
+        WorkerStatsDto directEntry = stats.stream()
+                .filter(s -> workerId.equals(s.getWorkerId()) && workerId.equals(s.getResourceId()))
+                .findFirst().orElse(null);
+        WorkerStatsDto wycinanieEntry = stats.stream()
+                .filter(s -> workerId.equals(s.getWorkerId()) && groupResource.equals(s.getResourceId()))
+                .findFirst().orElse(null);
+
+        assertNotNull(directEntry, "Should have direct work entry");
+        assertNotNull(wycinanieEntry, "Should have Wycinanie entry");
+
+        // BOTH entries should show the SAME totals (because it's the same physical person!)
+        // Total production = 4h (direct) + 2h (Wycinanie) = 6h
+        // Total internal = 1h
+        // Total idle = 9h - 6h - 1h = 2h
+
+        // Direct entry
+        assertBDEquals("9.0", directEntry.getPresence(), "Direct entry: presence should be 9h (from attendance)");
+        assertBDEquals("6.0", directEntry.getProduction(), "Direct entry: production should be TOTAL 6h (4h+2h)");
+        assertBDEquals("1.0", directEntry.getInternalWork(), "Direct entry: internal should be 1h");
+        assertBDEquals("2.0", directEntry.getIdle(), "Direct entry: idle should be 9h - 6h - 1h = 2h");
+
+        // Wycinanie entry - SAME values!
+        assertBDEquals("9.0", wycinanieEntry.getPresence(), "Wycinanie entry: presence should be 9h (same person!)");
+        assertBDEquals("6.0", wycinanieEntry.getProduction(), "Wycinanie entry: production should be TOTAL 6h (same person!)");
+        assertBDEquals("1.0", wycinanieEntry.getInternalWork(), "Wycinanie entry: internal should be 1h (same person!)");
+        assertBDEquals("2.0", wycinanieEntry.getIdle(), "Wycinanie entry: idle should be 2h (same person!)");
+
+        // Daily details should also be the same for both entries on this day
+        assertEquals(1, directEntry.getDailyDetails().size());
+        assertEquals(1, wycinanieEntry.getDailyDetails().size());
+
+        DailyWorkerDetailDto directDayDetail = directEntry.getDailyDetails().get(0);
+        DailyWorkerDetailDto wycinanieDayDetail = wycinanieEntry.getDailyDetails().get(0);
+
+        assertEquals(directDayDetail.getProductionHours(), wycinanieDayDetail.getProductionHours(),
+                "Daily production should be same for both entries");
+        assertEquals(directDayDetail.getInternalHours(), wycinanieDayDetail.getInternalHours(),
+                "Daily internal should be same for both entries");
+        assertEquals(directDayDetail.getIdleHours(), wycinanieDayDetail.getIdleHours(),
+                "Daily idle should be same for both entries");
+    }
+
+    @Test
+    void workerResourceEntries_multipledays_shouldShowCorrectTotalsPerDay() {
+        // Scenario: Worker works on two days
+        // Day 1: 4h direct + 2h Wycinanie, attendance 8h
+        // Day 2: 3h direct only, attendance 8h
+        //
+        // For "Kamil Rygiel (Kamil Rygiel)" - appears on both days:
+        // - Day 1: prod=6h, idle=2h
+        // - Day 2: prod=3h, idle=5h
+        //
+        // For "Kamil Rygiel (Wycinanie)" - appears only on Day 1:
+        // - Day 1: prod=6h, idle=2h (same as direct entry for that day!)
+
+        String workerId = "Kamil Rygiel";
+        String groupResource = "Wycinanie";
+        LocalDate day1 = LocalDate.of(2025, 11, 25);
+        LocalDate day2 = LocalDate.of(2025, 11, 26);
+
+        List<JobDto> jobs = Arrays.asList(
+                // Day 1: Direct work (4h)
+                JobDto.builder()
+                        .id(1).numerZlecenia("ZP/001").date(day1).productTypeId("RAMA-STALOWA")
+                        .quantity(new BigDecimal("4")).totalMinutes(new BigDecimal("240"))
+                        .workers(List.of(WorkerTimeDto.builder()
+                                .workerId(workerId).resourceId(workerId).workDate(day1)
+                                .minutesWorked(new BigDecimal("240")).build()))
+                        .build(),
+
+                // Day 1: Via Wycinanie (2h)
+                JobDto.builder()
+                        .id(2).numerZlecenia("ZP/002").date(day1).productTypeId("RAMA-STALOWA")
+                        .quantity(new BigDecimal("2")).totalMinutes(new BigDecimal("120"))
+                        .workers(List.of(WorkerTimeDto.builder()
+                                .workerId(workerId).resourceId(groupResource).workDate(day1)
+                                .minutesWorked(new BigDecimal("120")).build()))
+                        .build(),
+
+                // Day 2: Direct work only (3h)
+                JobDto.builder()
+                        .id(3).numerZlecenia("ZP/003").date(day2).productTypeId("RAMA-STALOWA")
+                        .quantity(new BigDecimal("3")).totalMinutes(new BigDecimal("180"))
+                        .workers(List.of(WorkerTimeDto.builder()
+                                .workerId(workerId).resourceId(workerId).workDate(day2)
+                                .minutesWorked(new BigDecimal("180")).build()))
+                        .build()
+        );
+
+        List<EmployeeHoursDto> attendance = List.of(
+                EmployeeHoursDto.builder()
+                        .employeeName(workerId)
+                        .dailyHours(Arrays.asList(
+                                DailyHoursDto.builder().date(day1).hours(new BigDecimal("8")).build(),
+                                DailyHoursDto.builder().date(day2).hours(new BigDecimal("8")).build()
+                        ))
+                        .build()
+        );
+
+        Map<String, Map<LocalDate, BigDecimal>> attendanceMap = calculator.buildAttendanceMap(attendance);
+        Map<String, BigDecimal> benchmarks = calculator.calculateBenchmarks(jobs);
+        List<WorkerStatsDto> stats = calculator.calculateAllWorkerStats(jobs, jobs, benchmarks, attendanceMap, false);
+
+        printResults("WORKER+RESOURCE MULTIPLE DAYS TEST", stats, benchmarks);
+
+        WorkerStatsDto directEntry = stats.stream()
+                .filter(s -> workerId.equals(s.getWorkerId()) && workerId.equals(s.getResourceId()))
+                .findFirst().orElse(null);
+        WorkerStatsDto wycinanieEntry = stats.stream()
+                .filter(s -> workerId.equals(s.getWorkerId()) && groupResource.equals(s.getResourceId()))
+                .findFirst().orElse(null);
+
+        assertNotNull(directEntry);
+        assertNotNull(wycinanieEntry);
+
+        // Direct entry has 2 days (Day 1 + Day 2)
+        assertEquals(2, directEntry.getDailyDetails().size(), "Direct entry should have 2 days");
+        // Wycinanie entry has only 1 day (Day 1)
+        assertEquals(1, wycinanieEntry.getDailyDetails().size(), "Wycinanie entry should have 1 day");
+
+        // Check Day 1 details are the SAME for both entries
+        DailyWorkerDetailDto directDay1 = directEntry.getDailyDetails().stream()
+                .filter(d -> d.getDate().equals(day1)).findFirst().orElseThrow();
+        DailyWorkerDetailDto wycinanieDay1 = wycinanieEntry.getDailyDetails().get(0);
+
+        assertEquals(day1, wycinanieDay1.getDate());
+
+        // Day 1: total work = 4h + 2h = 6h, attendance = 8h, idle = 2h
+        assertBDEquals("6.00", directDay1.getProductionHours(), "Day1 direct production");
+        assertBDEquals("6.00", wycinanieDay1.getProductionHours(), "Day1 Wycinanie production (same!)");
+        assertBDEquals("2.00", directDay1.getIdleHours(), "Day1 direct idle");
+        assertBDEquals("2.00", wycinanieDay1.getIdleHours(), "Day1 Wycinanie idle (same!)");
+
+        // Check Day 2 for direct entry only
+        DailyWorkerDetailDto directDay2 = directEntry.getDailyDetails().stream()
+                .filter(d -> d.getDate().equals(day2)).findFirst().orElseThrow();
+        // Day 2: work = 3h, attendance = 8h, idle = 5h
+        assertBDEquals("3.00", directDay2.getProductionHours());
+        assertBDEquals("5.00", directDay2.getIdleHours());
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // DATA BUILDERS
     // ═══════════════════════════════════════════════════════════════════════
@@ -665,74 +1050,74 @@ class WorkerAnalyticsE2ETest {
         jobs.add(JobDto.builder().id(id++).numerZlecenia("ZLC/2024/001").date(DAY_1).productTypeId("RAMA-STALOWA")
                 .quantity(new BigDecimal("5")).totalMinutes(new BigDecimal("300"))
                 .workers(Arrays.asList(
-                        WorkerTimeDto.builder().workerId(WORKER_KOWALSKI).workDate(DAY_1).minutesWorked(new BigDecimal("150")).build(),
-                        WorkerTimeDto.builder().workerId(WORKER_NOWAK).workDate(DAY_1).minutesWorked(new BigDecimal("150")).build()
+                        WorkerTimeDto.builder().workerId(WORKER_KOWALSKI).resourceId(WORKER_KOWALSKI).workDate(DAY_1).minutesWorked(new BigDecimal("150")).build(),
+                        WorkerTimeDto.builder().workerId(WORKER_NOWAK).resourceId(WORKER_NOWAK).workDate(DAY_1).minutesWorked(new BigDecimal("150")).build()
                 )).build());
 
         jobs.add(JobDto.builder().id(id++).numerZlecenia("ZLC/2024/002").date(DAY_1).productTypeId("RAMA-STALOWA")
                 .quantity(new BigDecimal("3")).totalMinutes(new BigDecimal("240"))
                 .workers(Arrays.asList(
-                        WorkerTimeDto.builder().workerId(WORKER_WISNIEWSKI).workDate(DAY_1).minutesWorked(new BigDecimal("240")).build()
+                        WorkerTimeDto.builder().workerId(WORKER_WISNIEWSKI).resourceId(WORKER_WISNIEWSKI).workDate(DAY_1).minutesWorked(new BigDecimal("240")).build()
                 )).build());
 
         jobs.add(JobDto.builder().id(id++).numerZlecenia("ZLC/2024/003").date(DAY_1).productTypeId("DRZWI-ALUMINIOWE")
                 .quantity(new BigDecimal("2")).totalMinutes(new BigDecimal("180"))
                 .workers(Arrays.asList(
-                        WorkerTimeDto.builder().workerId(WORKER_WOJCIK).workDate(DAY_1).minutesWorked(new BigDecimal("90")).build(),
-                        WorkerTimeDto.builder().workerId(WORKER_KOWALCZYK).workDate(DAY_1).minutesWorked(new BigDecimal("90")).build()
+                        WorkerTimeDto.builder().workerId(WORKER_WOJCIK).resourceId(WORKER_WOJCIK).workDate(DAY_1).minutesWorked(new BigDecimal("90")).build(),
+                        WorkerTimeDto.builder().workerId(WORKER_KOWALCZYK).resourceId(WORKER_KOWALCZYK).workDate(DAY_1).minutesWorked(new BigDecimal("90")).build()
                 )).build());
 
         jobs.add(JobDto.builder().id(id++).numerZlecenia("ZLC/2024/004").date(DAY_2).productTypeId("RAMA-STALOWA")
                 .quantity(new BigDecimal("4")).totalMinutes(new BigDecimal("200"))
                 .workers(Arrays.asList(
-                        WorkerTimeDto.builder().workerId(WORKER_KOWALSKI).workDate(DAY_2).minutesWorked(new BigDecimal("100")).build(),
-                        WorkerTimeDto.builder().workerId(WORKER_KAMINSKI).workDate(DAY_2).minutesWorked(new BigDecimal("100")).build()
+                        WorkerTimeDto.builder().workerId(WORKER_KOWALSKI).resourceId(WORKER_KOWALSKI).workDate(DAY_2).minutesWorked(new BigDecimal("100")).build(),
+                        WorkerTimeDto.builder().workerId(WORKER_KAMINSKI).resourceId(WORKER_KAMINSKI).workDate(DAY_2).minutesWorked(new BigDecimal("100")).build()
                 )).build());
 
         jobs.add(JobDto.builder().id(id++).numerZlecenia("ZLC/2024/005").date(DAY_2).productTypeId("OKNO-PCV")
                 .quantity(new BigDecimal("10")).totalMinutes(new BigDecimal("400"))
                 .workers(Arrays.asList(
-                        WorkerTimeDto.builder().workerId(WORKER_NOWAK).workDate(DAY_2).minutesWorked(new BigDecimal("200")).build(),
-                        WorkerTimeDto.builder().workerId(WORKER_WISNIEWSKI).workDate(DAY_2).minutesWorked(new BigDecimal("200")).build()
+                        WorkerTimeDto.builder().workerId(WORKER_NOWAK).resourceId(WORKER_NOWAK).workDate(DAY_2).minutesWorked(new BigDecimal("200")).build(),
+                        WorkerTimeDto.builder().workerId(WORKER_WISNIEWSKI).resourceId(WORKER_WISNIEWSKI).workDate(DAY_2).minutesWorked(new BigDecimal("200")).build()
                 )).build());
 
         jobs.add(JobDto.builder().id(id++).numerZlecenia("ZLC/2024/006").date(DAY_3).productTypeId("BRAMA-GARAZOWA")
                 .quantity(new BigDecimal("1")).totalMinutes(new BigDecimal("480"))
                 .workers(Arrays.asList(
-                        WorkerTimeDto.builder().workerId(WORKER_KOWALSKI).workDate(DAY_3).minutesWorked(new BigDecimal("240")).build(),
-                        WorkerTimeDto.builder().workerId(WORKER_WOJCIK).workDate(DAY_3).minutesWorked(new BigDecimal("120")).build(),
-                        WorkerTimeDto.builder().workerId(WORKER_KOWALCZYK).workDate(DAY_3).minutesWorked(new BigDecimal("120")).build()
+                        WorkerTimeDto.builder().workerId(WORKER_KOWALSKI).resourceId(WORKER_KOWALSKI).workDate(DAY_3).minutesWorked(new BigDecimal("240")).build(),
+                        WorkerTimeDto.builder().workerId(WORKER_WOJCIK).resourceId(WORKER_WOJCIK).workDate(DAY_3).minutesWorked(new BigDecimal("120")).build(),
+                        WorkerTimeDto.builder().workerId(WORKER_KOWALCZYK).resourceId(WORKER_KOWALCZYK).workDate(DAY_3).minutesWorked(new BigDecimal("120")).build()
                 )).build());
 
         jobs.add(JobDto.builder().id(id++).numerZlecenia("ZLC/2024/007").date(DAY_3).productTypeId("DRZWI-ALUMINIOWE")
                 .quantity(new BigDecimal("4")).totalMinutes(new BigDecimal("320"))
                 .workers(Arrays.asList(
-                        WorkerTimeDto.builder().workerId(WORKER_NOWAK).workDate(DAY_3).minutesWorked(new BigDecimal("160")).build(),
-                        WorkerTimeDto.builder().workerId(WORKER_KAMINSKI).workDate(DAY_3).minutesWorked(new BigDecimal("160")).build()
+                        WorkerTimeDto.builder().workerId(WORKER_NOWAK).resourceId(WORKER_NOWAK).workDate(DAY_3).minutesWorked(new BigDecimal("160")).build(),
+                        WorkerTimeDto.builder().workerId(WORKER_KAMINSKI).resourceId(WORKER_KAMINSKI).workDate(DAY_3).minutesWorked(new BigDecimal("160")).build()
                 )).build());
 
         jobs.add(JobDto.builder().id(id++).numerZlecenia("ZLC/2024/008").date(DAY_4).productTypeId("OKNO-PCV")
                 .quantity(new BigDecimal("8")).totalMinutes(new BigDecimal("320"))
                 .workers(Arrays.asList(
-                        WorkerTimeDto.builder().workerId(WORKER_WISNIEWSKI).workDate(DAY_4).minutesWorked(new BigDecimal("320")).build()
+                        WorkerTimeDto.builder().workerId(WORKER_WISNIEWSKI).resourceId(WORKER_WISNIEWSKI).workDate(DAY_4).minutesWorked(new BigDecimal("320")).build()
                 )).build());
 
         jobs.add(JobDto.builder().id(id++).numerZlecenia("ZLC/2024/009").date(DAY_4).productTypeId("RAMA-STALOWA")
                 .quantity(new BigDecimal("6")).totalMinutes(new BigDecimal("300"))
                 .workers(Arrays.asList(
-                        WorkerTimeDto.builder().workerId(WORKER_KOWALSKI).workDate(DAY_4).minutesWorked(new BigDecimal("150")).build(),
-                        WorkerTimeDto.builder().workerId(WORKER_NOWAK).workDate(DAY_4).minutesWorked(new BigDecimal("150")).build()
+                        WorkerTimeDto.builder().workerId(WORKER_KOWALSKI).resourceId(WORKER_KOWALSKI).workDate(DAY_4).minutesWorked(new BigDecimal("150")).build(),
+                        WorkerTimeDto.builder().workerId(WORKER_NOWAK).resourceId(WORKER_NOWAK).workDate(DAY_4).minutesWorked(new BigDecimal("150")).build()
                 )).build());
 
         jobs.add(JobDto.builder().id(id++).numerZlecenia("ZLC/2024/010-PRACE-WEWN").date(DAY_5).productTypeId("PRACE WEWNĘTRZNE")
                 .quantity(new BigDecimal("1")).totalMinutes(new BigDecimal("600"))
                 .workers(Arrays.asList(
-                        WorkerTimeDto.builder().workerId(WORKER_KOWALSKI).workDate(DAY_5).minutesWorked(new BigDecimal("120")).build(),
-                        WorkerTimeDto.builder().workerId(WORKER_NOWAK).workDate(DAY_5).minutesWorked(new BigDecimal("90")).build(),
-                        WorkerTimeDto.builder().workerId(WORKER_WISNIEWSKI).workDate(DAY_5).minutesWorked(new BigDecimal("150")).build(),
-                        WorkerTimeDto.builder().workerId(WORKER_WOJCIK).workDate(DAY_5).minutesWorked(new BigDecimal("60")).build(),
-                        WorkerTimeDto.builder().workerId(WORKER_KOWALCZYK).workDate(DAY_5).minutesWorked(new BigDecimal("80")).build(),
-                        WorkerTimeDto.builder().workerId(WORKER_KAMINSKI).workDate(DAY_5).minutesWorked(new BigDecimal("100")).build()
+                        WorkerTimeDto.builder().workerId(WORKER_KOWALSKI).resourceId(WORKER_KOWALSKI).workDate(DAY_5).minutesWorked(new BigDecimal("120")).build(),
+                        WorkerTimeDto.builder().workerId(WORKER_NOWAK).resourceId(WORKER_NOWAK).workDate(DAY_5).minutesWorked(new BigDecimal("90")).build(),
+                        WorkerTimeDto.builder().workerId(WORKER_WISNIEWSKI).resourceId(WORKER_WISNIEWSKI).workDate(DAY_5).minutesWorked(new BigDecimal("150")).build(),
+                        WorkerTimeDto.builder().workerId(WORKER_WOJCIK).resourceId(WORKER_WOJCIK).workDate(DAY_5).minutesWorked(new BigDecimal("60")).build(),
+                        WorkerTimeDto.builder().workerId(WORKER_KOWALCZYK).resourceId(WORKER_KOWALCZYK).workDate(DAY_5).minutesWorked(new BigDecimal("80")).build(),
+                        WorkerTimeDto.builder().workerId(WORKER_KAMINSKI).resourceId(WORKER_KAMINSKI).workDate(DAY_5).minutesWorked(new BigDecimal("100")).build()
                 )).build());
 
         return jobs;
@@ -778,30 +1163,54 @@ class WorkerAnalyticsE2ETest {
         );
     }
 
+    /**
+     * Find worker by workerId only (for backwards compatibility with tests that don't set resourceId).
+     * When resourceId is not set, it defaults to workerId.
+     */
     private WorkerStatsDto findWorker(List<WorkerStatsDto> stats, String workerId) {
-        return stats.stream().filter(s -> workerId.equals(s.getWorkerId())).findFirst().orElse(null);
+        // First try to find by workerId where resourceId equals workerId (direct work)
+        return stats.stream()
+                .filter(s -> workerId.equals(s.getWorkerId()) &&
+                        (s.getResourceId() == null || workerId.equals(s.getResourceId())))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Find worker by both workerId and resourceId.
+     */
+    private WorkerStatsDto findWorkerResource(List<WorkerStatsDto> stats, String workerId, String resourceId) {
+        return stats.stream()
+                .filter(s -> workerId.equals(s.getWorkerId()) && resourceId.equals(s.getResourceId()))
+                .findFirst()
+                .orElse(null);
     }
 
     private void printResults(String title, List<WorkerStatsDto> stats, Map<String, BigDecimal> benchmarks) {
-        System.out.println("\n" + "=".repeat(80));
+        System.out.println("\n" + "=".repeat(100));
         System.out.println(title);
-        System.out.println("=".repeat(80));
+        System.out.println("=".repeat(100));
 
         System.out.println("\nBENCHMARKS:");
         benchmarks.forEach((p, h) -> System.out.printf("  %-25s : %s h/unit%n", p, h));
 
         System.out.println("\nWORKER STATS:");
-        System.out.printf("%-20s | %6s | %8s | %8s | %8s | %8s | %4s | %6s%n",
-                "WORKER", "SPEED", "PRESENCE", "PROD", "INTERNAL", "IDLE", "JOBS", "CAPPED");
-        System.out.println("-".repeat(85));
+        System.out.printf("%-20s | %-15s | %6s | %8s | %8s | %8s | %8s | %4s | %6s%n",
+                "WORKER", "RESOURCE", "SPEED", "PRESENCE", "PROD", "INTERNAL", "IDLE", "JOBS", "CAPPED");
+        System.out.println("-".repeat(105));
 
         for (WorkerStatsDto s : stats) {
-            System.out.printf("%-20s | %6s | %6s h | %6s h | %6s h | %6s h | %4d | %4d%n",
-                    s.getWorkerId(),
+            String resourceDisplay = s.getResourceId() != null ? s.getResourceId() : s.getWorkerId();
+            if (resourceDisplay.length() > 15) {
+                resourceDisplay = resourceDisplay.substring(0, 12) + "...";
+            }
+            System.out.printf("%-20s | %-15s | %6s | %6s h | %6s h | %6s h | %6s h | %4d | %4d%n",
+                    s.getWorkerId().length() > 20 ? s.getWorkerId().substring(0, 17) + "..." : s.getWorkerId(),
+                    resourceDisplay,
                     s.getSpeedIndex() != null ? s.getSpeedIndex() : "N/A",
                     s.getPresence(), s.getProduction(), s.getInternalWork(), s.getIdle(),
                     s.getJobCount(), s.getCappedDays().size());
         }
-        System.out.println("-".repeat(85));
+        System.out.println("-".repeat(105));
     }
 }

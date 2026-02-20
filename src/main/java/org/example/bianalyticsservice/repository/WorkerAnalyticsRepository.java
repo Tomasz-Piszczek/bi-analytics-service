@@ -18,21 +18,29 @@ public interface WorkerAnalyticsRepository extends JpaRepository<CtiZlecenieNag,
             t.Twr_Kod                            AS productTypeId,
             czn.CZN_Ilosc                        AS quantity,
             (
-                SELECT sub.workerId, sub.workDate, SUM(sub.minutesWorked) AS minutesWorked
+                SELECT sub.workerId, sub.resourceId, sub.workDate, SUM(sub.minutesWorked) AS minutesWorked
                 FROM (
                     SELECT
-                        cz2.CZ_Kod AS workerId,
+                        COALESCE(prc_single.CZ_Kod, cz2.CZ_Kod) AS workerId,
+                        cz2.CZ_Kod AS resourceId,
                         CAST(wt2.work_date AS date) AS workDate,
                         wt2.total_minutes AS minutesWorked
                     FROM (
-                        SELECT ZZs_CZNID, ZZs_CZID, CAST(ZZs_Data AS date) AS work_date, SUM(ZZs_CzasMin) AS total_minutes
+                        SELECT ZZs_CZNID, ZZs_CZID, ZZs_PrcId, CAST(ZZs_Data AS date) AS work_date, SUM(ZZs_CzasMin) AS total_minutes
                         FROM dbo.CtiZlecenieZasob
-                        GROUP BY ZZs_CZNID, ZZs_CZID, CAST(ZZs_Data AS date)
+                        GROUP BY ZZs_CZNID, ZZs_CZID, ZZs_PrcId, CAST(ZZs_Data AS date)
                     ) AS wt2
                     INNER JOIN dbo.CtiZasob cz2 ON wt2.ZZs_CZID = cz2.CZ_ID
+                    LEFT JOIN (
+                        SELECT zsp.ZsP_PrcId, MAX(cz_prc.CZ_Kod) AS CZ_Kod
+                        FROM dbo.CtiZasobPrc zsp
+                        INNER JOIN dbo.CtiZasob cz_prc ON zsp.ZsP_CZID = cz_prc.CZ_ID
+                        GROUP BY zsp.ZsP_PrcId
+                        HAVING COUNT(DISTINCT zsp.ZsP_CZID) = 1
+                    ) prc_single ON prc_single.ZsP_PrcId = wt2.ZZs_PrcId
                     WHERE wt2.ZZs_CZNID = czn.CZN_ID
                 ) sub
-                GROUP BY sub.workerId, sub.workDate
+                GROUP BY sub.workerId, sub.resourceId, sub.workDate
                 ORDER BY sub.workerId, sub.workDate
                 FOR JSON PATH
             )                                    AS workers,

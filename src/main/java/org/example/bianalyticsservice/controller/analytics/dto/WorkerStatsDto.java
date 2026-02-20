@@ -14,6 +14,7 @@ import java.util.List;
 @AllArgsConstructor
 public class WorkerStatsDto {
     private String workerId;
+    private String resourceId;
     private BigDecimal speedIndex;
     private BigDecimal presence;
     private BigDecimal production;

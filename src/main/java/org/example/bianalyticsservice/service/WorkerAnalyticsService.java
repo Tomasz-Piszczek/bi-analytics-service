@@ -116,6 +116,7 @@ public class WorkerAnalyticsService {
         return workersList.stream()
                 .map(map -> WorkerTimeDto.builder()
                         .workerId((String) map.get("workerId"))
+                        .resourceId((String) map.get("resourceId"))
                         .workDate(map.get("workDate") != null ? LocalDate.parse(map.get("workDate").toString()) : null)
                         .minutesWorked(new BigDecimal(map.get("minutesWorked").toString()))
                         .build())

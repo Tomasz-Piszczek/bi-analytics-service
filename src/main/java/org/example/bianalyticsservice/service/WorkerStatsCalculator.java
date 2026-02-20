@@ -66,7 +66,8 @@ public class WorkerStatsCalculator {
                 continue;
             }
 
-            WorkerTimeDto worker = findWorker(job, workerId);
+            // Find worker entries excluding group resource work (e.g., Wycinanie should not affect speed index)
+            WorkerTimeDto worker = findWorkerExcludingGroupResource(job, workerId);
             if (worker == null) {
                 continue;
             }
@@ -236,6 +237,11 @@ public class WorkerStatsCalculator {
                 .build();
     }
 
+    /**
+     * A simple record to hold worker+resource combination as a key.
+     */
+    private record WorkerResourceKey(String workerId, String resourceId) {}
+
     public List<WorkerStatsDto> calculateAllWorkerStats(
             List<JobDto> filteredJobs,
             List<JobDto> allJobs,
@@ -243,13 +249,14 @@ public class WorkerStatsCalculator {
             Map<String, Map<LocalDate, BigDecimal>> attendance,
             boolean ignoreInternalWork
     ) {
-        Set<String> workerIds = filteredJobs.stream()
+        // Collect unique (workerId, resourceId) pairs from filtered jobs
+        Set<WorkerResourceKey> workerResourceKeys = filteredJobs.stream()
                 .flatMap(job -> job.getWorkers().stream())
-                .map(WorkerTimeDto::getWorkerId)
+                .map(w -> new WorkerResourceKey(w.getWorkerId(), w.getResourceId() != null ? w.getResourceId() : w.getWorkerId()))
                 .collect(Collectors.toSet());
 
-        return workerIds.stream()
-                .map(workerId -> calculateWorkerStats(workerId, filteredJobs, allJobs, benchmarks, attendance, ignoreInternalWork))
+        return workerResourceKeys.stream()
+                .map(key -> calculateWorkerResourceStats(key.workerId(), key.resourceId(), filteredJobs, allJobs, benchmarks, attendance, ignoreInternalWork))
                 .sorted((a, b) -> {
                     if (a.getSpeedIndex() == null && b.getSpeedIndex() == null) return 0;
                     if (a.getSpeedIndex() == null) return 1;
@@ -257,6 +264,221 @@ public class WorkerStatsCalculator {
                     return b.getSpeedIndex().compareTo(a.getSpeedIndex());
                 })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Calculate stats for a specific worker+resource combination.
+     */
+    public WorkerStatsDto calculateWorkerResourceStats(
+            String workerId,
+            String resourceId,
+            List<JobDto> filteredJobs,
+            List<JobDto> allJobs,
+            Map<String, BigDecimal> benchmarks,
+            Map<String, Map<LocalDate, BigDecimal>> attendance,
+            boolean ignoreInternalWork
+    ) {
+        // Filter to only entries matching this worker+resource combination
+        BigDecimal speedIndex = calculateSpeedIndexForResource(workerId, resourceId, filteredJobs, benchmarks, ignoreInternalWork);
+
+        // 1. Determine relevant dates and job count from filtered jobs (only for this resource)
+        Set<LocalDate> relevantDates = new LinkedHashSet<>();
+        int jobCount = 0;
+        Set<Integer> processedJobIds = new HashSet<>();
+
+        for (JobDto job : filteredJobs) {
+            List<WorkerTimeDto> entries = findWorkerResourceEntries(job, workerId, resourceId);
+            if (entries.isEmpty()) {
+                continue;
+            }
+
+            if (processedJobIds.add(job.getId())) {
+                jobCount++;
+            }
+
+            for (WorkerTimeDto entry : entries) {
+                LocalDate workDate = entry.getWorkDate() != null ? entry.getWorkDate() : job.getDate();
+                if (workDate != null) {
+                    relevantDates.add(workDate);
+                }
+            }
+        }
+
+        // 2. Compute TOTAL work by this workerId (across ALL resources) on relevant dates
+        // Since it's the same physical person, we show totals regardless of which resource was used
+        Map<LocalDate, BigDecimal> productionPerDay = new HashMap<>();
+        Map<LocalDate, BigDecimal> internalPerDay = new HashMap<>();
+
+        for (JobDto job : allJobs) {
+            // Get ALL entries for this worker regardless of resource
+            List<WorkerTimeDto> allWorkerEntries = findWorkerEntries(job, workerId);
+
+            boolean isInternal = isInternalWorkJob(job);
+
+            // Count ALL work by this worker (not just for this resource!)
+            for (WorkerTimeDto entry : allWorkerEntries) {
+                LocalDate workDate = entry.getWorkDate() != null ? entry.getWorkDate() : job.getDate();
+                if (workDate == null || !relevantDates.contains(workDate)) {
+                    continue;
+                }
+
+                BigDecimal hours = entry.getMinutesWorked()
+                        .divide(new BigDecimal("60"), 4, RoundingMode.HALF_UP);
+
+                if (isInternal) {
+                    internalPerDay.merge(workDate, hours, BigDecimal::add);
+                } else {
+                    productionPerDay.merge(workDate, hours, BigDecimal::add);
+                }
+            }
+        }
+
+        // 3. Compute totals with daily cap
+        BigDecimal totalPresence = BigDecimal.ZERO;
+        BigDecimal totalProduction = BigDecimal.ZERO;
+        BigDecimal totalInternalWork = BigDecimal.ZERO;
+        BigDecimal totalIdle = BigDecimal.ZERO;
+        List<DailyWorkerDetailDto> dailyDetails = new ArrayList<>();
+        List<CappedDayDto> cappedDays = new ArrayList<>();
+
+        Map<LocalDate, BigDecimal> workerAttendance = attendance.getOrDefault(workerId, Collections.emptyMap());
+
+        for (LocalDate date : relevantDates) {
+            BigDecimal rcpHours = workerAttendance.getOrDefault(date, BigDecimal.ZERO);
+            BigDecimal dayProduction = productionPerDay.getOrDefault(date, BigDecimal.ZERO);
+            BigDecimal dayInternal = ignoreInternalWork
+                    ? BigDecimal.ZERO
+                    : internalPerDay.getOrDefault(date, BigDecimal.ZERO);
+            BigDecimal dailyWork = dayProduction.add(dayInternal);
+
+            // Presence = max(attendance, actual work)
+            BigDecimal presenceHours = rcpHours.max(dailyWork);
+
+            boolean wasCapped = false;
+
+            if (presenceHours.compareTo(DAILY_PRESENCE_CAP) > 0) {
+                wasCapped = true;
+
+                cappedDays.add(CappedDayDto.builder()
+                        .workerId(workerId)
+                        .date(date)
+                        .originalHours(presenceHours.setScale(2, RoundingMode.HALF_UP))
+                        .cappedHours(DAILY_PRESENCE_CAP.setScale(2, RoundingMode.HALF_UP))
+                        .build());
+
+                presenceHours = DAILY_PRESENCE_CAP;
+
+                // Scale work proportionally if capped
+                if (dailyWork.compareTo(DAILY_PRESENCE_CAP) > 0) {
+                    BigDecimal scaleFactor = DAILY_PRESENCE_CAP.divide(dailyWork, 4, RoundingMode.HALF_UP);
+                    dayProduction = dayProduction.multiply(scaleFactor).setScale(4, RoundingMode.HALF_UP);
+                    dayInternal = dayInternal.multiply(scaleFactor).setScale(4, RoundingMode.HALF_UP);
+                }
+            }
+
+            // Idle = presence - production - internal
+            BigDecimal dayIdle = presenceHours.subtract(dayProduction).subtract(dayInternal);
+            if (dayIdle.compareTo(BigDecimal.ZERO) < 0) {
+                dayIdle = BigDecimal.ZERO;
+            }
+
+            totalPresence = totalPresence.add(presenceHours);
+            totalProduction = totalProduction.add(dayProduction);
+            totalInternalWork = totalInternalWork.add(dayInternal);
+            totalIdle = totalIdle.add(dayIdle);
+
+            dailyDetails.add(DailyWorkerDetailDto.builder()
+                    .date(date)
+                    .productionHours(dayProduction.setScale(2, RoundingMode.HALF_UP))
+                    .internalHours(dayInternal.setScale(2, RoundingMode.HALF_UP))
+                    .idleHours(dayIdle.setScale(2, RoundingMode.HALF_UP))
+                    .attendanceHours(rcpHours.setScale(2, RoundingMode.HALF_UP))
+                    .wasCapped(wasCapped)
+                    .build());
+        }
+
+        dailyDetails.sort(Comparator.comparing(DailyWorkerDetailDto::getDate));
+
+        return WorkerStatsDto.builder()
+                .workerId(workerId)
+                .resourceId(resourceId)
+                .speedIndex(speedIndex)
+                .presence(totalPresence.setScale(1, RoundingMode.HALF_UP))
+                .production(totalProduction.setScale(1, RoundingMode.HALF_UP))
+                .internalWork(totalInternalWork.setScale(1, RoundingMode.HALF_UP))
+                .idle(totalIdle.setScale(1, RoundingMode.HALF_UP))
+                .jobCount(jobCount)
+                .dailyDetails(dailyDetails)
+                .cappedDays(cappedDays)
+                .build();
+    }
+
+    /**
+     * Calculate speed index for a specific worker+resource combination.
+     */
+    private BigDecimal calculateSpeedIndexForResource(
+            String workerId,
+            String resourceId,
+            List<JobDto> jobs,
+            Map<String, BigDecimal> benchmarks,
+            boolean ignoreInternalWork
+    ) {
+        BigDecimal sumExp = BigDecimal.ZERO;
+        BigDecimal sumAct = BigDecimal.ZERO;
+
+        for (JobDto job : jobs) {
+            if (ignoreInternalWork && isInternalWorkJob(job)) {
+                continue;
+            }
+
+            // Find worker entries for this specific resource
+            List<WorkerTimeDto> entries = findWorkerResourceEntries(job, workerId, resourceId);
+            if (entries.isEmpty()) {
+                continue;
+            }
+
+            BigDecimal totalMinutes = entries.stream()
+                    .map(WorkerTimeDto::getMinutesWorked)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            WorkerTimeDto worker = WorkerTimeDto.builder()
+                    .workerId(workerId)
+                    .resourceId(resourceId)
+                    .minutesWorked(totalMinutes)
+                    .build();
+
+            BigDecimal hoursPerUnit = getHoursPerUnit(job);
+            BigDecimal workerHours = getWorkerHoursPerUnit(worker, job.getQuantity());
+
+            if (hoursPerUnit.compareTo(BigDecimal.ZERO) == 0) {
+                continue;
+            }
+
+            BigDecimal benchmark = benchmarks.getOrDefault(job.getProductTypeId(), hoursPerUnit);
+            BigDecimal workerContribution = workerHours.divide(hoursPerUnit, 4, RoundingMode.HALF_UP);
+
+            sumExp = sumExp.add(benchmark.multiply(workerContribution));
+            sumAct = sumAct.add(workerHours);
+        }
+
+        if (sumAct.compareTo(BigDecimal.ZERO) == 0) {
+            return null;
+        }
+
+        return sumExp.divide(sumAct, 2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Find worker entries matching a specific workerId AND resourceId.
+     */
+    private List<WorkerTimeDto> findWorkerResourceEntries(JobDto job, String workerId, String resourceId) {
+        return job.getWorkers().stream()
+                .filter(w -> workerId.equals(w.getWorkerId()))
+                .filter(w -> {
+                    String entryResourceId = w.getResourceId() != null ? w.getResourceId() : w.getWorkerId();
+                    return resourceId.equals(entryResourceId);
+                })
+                .toList();
     }
 
     /**
@@ -298,6 +520,31 @@ public class WorkerStatsCalculator {
 
         return WorkerTimeDto.builder()
                 .workerId(workerId)
+                .minutesWorked(totalMinutes)
+                .build();
+    }
+
+    /**
+     * Finds worker entries excluding group resource work (e.g., Wycinanie).
+     * Used for speed index calculation - group resource work should not affect efficiency score.
+     */
+    private WorkerTimeDto findWorkerExcludingGroupResource(JobDto job, String workerId) {
+        List<WorkerTimeDto> workerEntries = job.getWorkers().stream()
+                .filter(w -> workerId.equals(w.getWorkerId()))
+                .filter(w -> !w.isGroupResource())
+                .toList();
+
+        if (workerEntries.isEmpty()) {
+            return null;
+        }
+
+        BigDecimal totalMinutes = workerEntries.stream()
+                .map(WorkerTimeDto::getMinutesWorked)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return WorkerTimeDto.builder()
+                .workerId(workerId)
+                .resourceId(workerId)
                 .minutesWorked(totalMinutes)
                 .build();
     }
