@@ -12,7 +12,7 @@ import java.util.Set;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class WorkerAnalyticsRequestDto {
+public class  WorkerAnalyticsRequestDto {
     private LocalDate dateFrom;
     private LocalDate dateTo;
     private Set<String> selectedProducts;

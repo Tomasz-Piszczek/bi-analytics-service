@@ -12,13 +12,17 @@ import java.util.concurrent.TimeUnit;
 public class CacheConfig {
 
     public static final String WORKER_ANALYTICS_CACHE = "workerAnalyticsCache";
+    public static final String EMPLOYEE_HOURS_CACHE = "employeeHoursCache";
 
     @Bean
     public CacheManager cacheManager() {
-        CaffeineCacheManager cacheManager = new CaffeineCacheManager(WORKER_ANALYTICS_CACHE);
+        CaffeineCacheManager cacheManager = new CaffeineCacheManager(
+                WORKER_ANALYTICS_CACHE,
+                EMPLOYEE_HOURS_CACHE
+        );
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .expireAfterWrite(30, TimeUnit.MINUTES)  // Cache expires after 30 minutes
-                .maximumSize(10)                          // Max 10 entries (we only need 1 for this cache)
+                .maximumSize(10)                          // Max 10 entries
                 .recordStats());                          // Enable stats for monitoring
         return cacheManager;
     }
