@@ -249,11 +249,32 @@ public class WorkerStatsCalculator {
             Map<String, Map<LocalDate, BigDecimal>> attendance,
             boolean ignoreInternalWork
     ) {
+        return calculateAllWorkerStats(filteredJobs, allJobs, benchmarks, attendance, ignoreInternalWork, null);
+    }
+
+    public List<WorkerStatsDto> calculateAllWorkerStats(
+            List<JobDto> filteredJobs,
+            List<JobDto> allJobs,
+            Map<String, BigDecimal> benchmarks,
+            Map<String, Map<LocalDate, BigDecimal>> attendance,
+            boolean ignoreInternalWork,
+            Set<String> excludedWorkerResources
+    ) {
         // Collect unique (workerId, resourceId) pairs from filtered jobs
         Set<WorkerResourceKey> workerResourceKeys = filteredJobs.stream()
                 .flatMap(job -> job.getWorkers().stream())
                 .map(w -> new WorkerResourceKey(w.getWorkerId(), w.getResourceId() != null ? w.getResourceId() : w.getWorkerId()))
                 .collect(Collectors.toSet());
+
+        // Filter out excluded composite IDs (workerId|resourceId)
+        if (excludedWorkerResources != null && !excludedWorkerResources.isEmpty()) {
+            workerResourceKeys = workerResourceKeys.stream()
+                    .filter(key -> {
+                        String compositeId = key.workerId() + "|" + key.resourceId();
+                        return !excludedWorkerResources.contains(compositeId);
+                    })
+                    .collect(Collectors.toSet());
+        }
 
         return workerResourceKeys.stream()
                 .map(key -> calculateWorkerResourceStats(key.workerId(), key.resourceId(), filteredJobs, allJobs, benchmarks, attendance, ignoreInternalWork))
@@ -570,11 +591,19 @@ public class WorkerStatsCalculator {
                     if (selectedProducts != null && !selectedProducts.isEmpty() && !selectedProducts.contains(job.getProductTypeId())) {
                         return false;
                     }
+                    // Note: excludedWorkers with composite IDs (workerId|resourceId) are handled
+                    // in calculateAllWorkerStats, not here. Only plain workerId exclusions are handled here.
                     if (excludedWorkers != null && !excludedWorkers.isEmpty()) {
-                        boolean hasExcluded = job.getWorkers().stream()
-                                .anyMatch(w -> excludedWorkers.contains(w.getWorkerId()));
-                        if (hasExcluded) {
-                            return false;
+                        // Only check plain workerIds (those without "|")
+                        Set<String> plainWorkerIds = excludedWorkers.stream()
+                                .filter(id -> !id.contains("|"))
+                                .collect(Collectors.toSet());
+                        if (!plainWorkerIds.isEmpty()) {
+                            boolean hasExcluded = job.getWorkers().stream()
+                                    .anyMatch(w -> plainWorkerIds.contains(w.getWorkerId()));
+                            if (hasExcluded) {
+                                return false;
+                            }
                         }
                     }
                     if (soloOnly) {

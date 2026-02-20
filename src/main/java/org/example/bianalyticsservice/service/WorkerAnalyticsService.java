@@ -6,7 +6,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import org.example.bianalyticsservice.controller.analytics.dto.*;
 import org.example.bianalyticsservice.controller.employee.dto.EmployeeHoursDto;
-import org.example.bianalyticsservice.repository.WorkerAnalyticsRepository;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -20,13 +19,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class WorkerAnalyticsService {
 
-    private final WorkerAnalyticsRepository workerAnalyticsRepository;
+    private final WorkerAnalyticsCacheService workerAnalyticsCacheService;
     private final ObjectMapper objectMapper;
     private final EmployeeService employeeService;
     private final WorkerStatsCalculator workerStatsCalculator;
 
     public WorkerAnalyticsResponseDto getWorkerAnalytics(WorkerAnalyticsRequestDto request) {
-        List<Object[]> rawData = workerAnalyticsRepository.findWorkerAnalytics();
+        List<Object[]> rawData = workerAnalyticsCacheService.getWorkerAnalytics();
 
         List<JobDto> allJobs = rawData.stream()
                 .map(this::mapToJobDto)
@@ -61,8 +60,18 @@ public class WorkerAnalyticsService {
 
         Map<String, Map<LocalDate, BigDecimal>> attendance = workerStatsCalculator.buildAttendanceMap(employeeHours);
         Map<String, BigDecimal> benchmarks = workerStatsCalculator.calculateBenchmarks(filteredJobs);
+
+        // Extract composite IDs from excludedWorkers (those containing "|")
+        Set<String> excludedCompositeIds = request.getExcludedWorkers() != null
+                ? request.getExcludedWorkers().stream()
+                        .filter(id -> id.contains("|"))
+                        .collect(Collectors.toSet())
+                : null;
+
         List<WorkerStatsDto> workerStats = workerStatsCalculator.calculateAllWorkerStats(
-                filteredJobs, allJobs, benchmarks, attendance, Boolean.TRUE.equals(request.getIgnoreInternalWork())
+                filteredJobs, allJobs, benchmarks, attendance,
+                Boolean.TRUE.equals(request.getIgnoreInternalWork()),
+                excludedCompositeIds
         );
 
         List<CappedDayDto> cappedDays = workerStatsCalculator.collectAllCappedDays(workerStats);
