@@ -20,11 +20,15 @@ public class EmployeeController {
     @PostMapping("/hours")
     public ResponseEntity<List<EmployeeHoursDto>> getEmployeeHours(
             @RequestBody List<String> employeeNames,
-            @RequestParam Integer year,
-            @RequestParam Integer month) {
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
         log.info("[getEmployeeHours] Getting hours for {} employees, year: {}, month: {}",
                 employeeNames.size(), year, month);
 
-        return ResponseEntity.ok(employeeService.getEmployeesHours(employeeNames, year, month));
+        if (year != null && month != null) {
+            return ResponseEntity.ok(employeeService.getEmployeesHours(employeeNames, year, month));
+        } else {
+            return ResponseEntity.ok(employeeService.getAllEmployeesHours(employeeNames));
+        }
     }
 }

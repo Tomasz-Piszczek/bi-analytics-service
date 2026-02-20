@@ -34,7 +34,6 @@ public class EmployeeService {
     }
 
     public EmployeeHoursDto getEmployeeHours(String employeeName, Integer year, Integer month) {
-
         BigDecimal hours = ctiProdukcjaPanelRCPRepository.getHoursWorkedByEmployeeAndYearAndMonth(
                 employeeName, year, month
         );
@@ -67,5 +66,36 @@ public class EmployeeService {
         return employeeNames.stream()
                 .map(employeeName -> getEmployeeHours(employeeName, year, month))
                 .collect(Collectors.toList());
+    }
+
+    public List<EmployeeHoursDto> getAllEmployeesHours(List<String> employeeNames) {
+        return employeeNames.stream()
+                .map(this::getAllEmployeeHours)
+                .collect(Collectors.toList());
+    }
+
+    public EmployeeHoursDto getAllEmployeeHours(String employeeName) {
+        List<Object[]> dailyHoursData = ctiProdukcjaPanelRCPRepository.getAllDailyHoursWorkedByEmployee(employeeName);
+
+        List<DailyHoursDto> dailyHours = dailyHoursData.stream()
+                .map(row -> DailyHoursDto.builder()
+                        .date(((Date) row[0]).toLocalDate())
+                        .hours((BigDecimal) row[1])
+                        .startTime(row[2] != null ? ((java.sql.Timestamp) row[2]).toLocalDateTime() : null)
+                        .endTime(row[3] != null ? ((java.sql.Timestamp) row[3]).toLocalDateTime() : null)
+                        .build())
+                .collect(Collectors.toList());
+
+        BigDecimal totalHours = dailyHours.stream()
+                .map(DailyHoursDto::getHours)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return EmployeeHoursDto.builder()
+                .employeeName(employeeName)
+                .year(null)
+                .month(null)
+                .hours(totalHours)
+                .dailyHours(dailyHours)
+                .build();
     }
 }
