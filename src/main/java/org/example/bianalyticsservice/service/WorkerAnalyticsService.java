@@ -17,6 +17,42 @@ public class WorkerAnalyticsService {
     private final WorkerAnalyticsCacheService workerAnalyticsCacheService;
     private final WorkerStatsCalculator workerStatsCalculator;
 
+    /**
+     * Returns a list of jobs that a worker worked on for a specific date.
+     * The workerId can be a composite ID (workerId|resourceId) or plain workerId.
+     */
+    public List<WorkerDailyJobEntryDto> getWorkerDailyJobs(String workerId, LocalDate date) {
+        List<JobDto> allJobs = workerAnalyticsCacheService.getAllJobs();
+
+        // Parse composite ID if present (format: "workerId|resourceId")
+        String actualWorkerId = workerId;
+        String resourceId = null;
+        if (workerId.contains("|")) {
+            String[] parts = workerId.split("\\|");
+            actualWorkerId = parts[0];
+            resourceId = parts.length > 1 ? parts[1] : null;
+        }
+
+        final String finalWorkerId = actualWorkerId;
+        final String finalResourceId = resourceId;
+
+        return allJobs.stream()
+                .flatMap(job -> job.getWorkers().stream()
+                        .filter(w -> finalWorkerId.equals(w.getWorkerId()))
+                        .filter(w -> date.equals(w.getWorkDate()))
+                        .filter(w -> finalResourceId == null ||
+                                finalResourceId.equals(w.getResourceId()) ||
+                                (finalResourceId.equals(finalWorkerId) && w.getResourceId() == null))
+                        .map(w -> WorkerDailyJobEntryDto.builder()
+                                .numerZlecenia(job.getNumerZlecenia())
+                                .productTypeId(job.getProductTypeId())
+                                .minutesWorked(w.getMinutesWorked())
+                                .timeFrom(w.getTimeFrom())
+                                .timeTo(w.getTimeTo())
+                                .build()))
+                .collect(Collectors.toList());
+    }
+
     public WorkerAnalyticsResponseDto getWorkerAnalytics(WorkerAnalyticsRequestDto request) {
         // Get already-mapped jobs from cache (DB + JSON parsing cached)
         List<JobDto> allJobs = workerAnalyticsCacheService.getAllJobs();

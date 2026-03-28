@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -155,6 +156,8 @@ public class WorkerAnalyticsCacheService {
                         .resourceId((String) map.get("resourceId"))
                         .workDate(map.get("workDate") != null ? LocalDate.parse(map.get("workDate").toString()) : null)
                         .minutesWorked(new BigDecimal(map.get("minutesWorked").toString()))
+                        .timeFrom(map.get("timeFrom") != null ? LocalDateTime.parse(map.get("timeFrom").toString()) : null)
+                        .timeTo(map.get("timeTo") != null ? LocalDateTime.parse(map.get("timeTo").toString()) : null)
                         .build())
                 .collect(Collectors.toList());
     }
