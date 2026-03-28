@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
 public class WorkerStatsCalculator {
 
     private static final Pattern INTERNAL_WORK_PATTERN = Pattern.compile("PRACE\\s*WEWN", Pattern.CASE_INSENSITIVE);
-    private static final BigDecimal DAILY_PRESENCE_CAP = new BigDecimal("10");
+    private static final BigDecimal DAILY_PRESENCE_CAP = new BigDecimal("10.1");
 
     public boolean isInternalWorkJob(JobDto job) {
         return INTERNAL_WORK_PATTERN.matcher(job.getProductTypeId()).find();
