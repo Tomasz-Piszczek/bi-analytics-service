@@ -18,15 +18,24 @@ public interface WorkerAnalyticsRepository extends JpaRepository<CtiZlecenieNag,
             t.Twr_Kod                            AS productTypeId,
             czn.CZN_Ilosc                        AS quantity,
             (
-                SELECT sub.workerId, sub.resourceId, sub.workDate, SUM(sub.minutesWorked) AS minutesWorked
+                SELECT sub.workerId, sub.resourceId, sub.workDate,
+                       SUM(sub.minutesWorked) AS minutesWorked,
+                       MIN(sub.timeFrom) AS timeFrom,
+                       MAX(sub.timeTo) AS timeTo
                 FROM (
                     SELECT
                         COALESCE(prc_single.CZ_Kod, cz2.CZ_Kod) AS workerId,
                         cz2.CZ_Kod AS resourceId,
                         CAST(wt2.work_date AS date) AS workDate,
-                        wt2.total_minutes AS minutesWorked
+                        wt2.total_minutes AS minutesWorked,
+                        wt2.time_from AS timeFrom,
+                        wt2.time_to AS timeTo
                     FROM (
-                     SELECT ZZs_CZNID, ZZs_CZID, ZZs_PrcId, CAST(ZZs_DataOd AS date) AS work_date, SUM(ZZs_CzasMin) AS total_minutes
+                     SELECT ZZs_CZNID, ZZs_CZID, ZZs_PrcId,
+                            CAST(ZZs_DataOd AS date) AS work_date,
+                            MIN(ZZs_DataOd) AS time_from,
+                            MAX(ZZs_DataDo) AS time_to,
+                            SUM(ZZs_CzasMin) AS total_minutes
                      FROM dbo.CtiZlecenieZasob
                      GROUP BY ZZs_CZNID, ZZs_CZID, ZZs_PrcId, CAST(ZZs_DataOd AS date)
                     ) AS wt2
