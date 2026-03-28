@@ -26,9 +26,9 @@ public interface WorkerAnalyticsRepository extends JpaRepository<CtiZlecenieNag,
                         CAST(wt2.work_date AS date) AS workDate,
                         wt2.total_minutes AS minutesWorked
                     FROM (
-                        SELECT ZZs_CZNID, ZZs_CZID, ZZs_PrcId, CAST(ZZs_Data AS date) AS work_date, SUM(ZZs_CzasMin) AS total_minutes
-                        FROM dbo.CtiZlecenieZasob
-                        GROUP BY ZZs_CZNID, ZZs_CZID, ZZs_PrcId, CAST(ZZs_Data AS date)
+                     SELECT ZZs_CZNID, ZZs_CZID, ZZs_PrcId, CAST(ZZs_DataOd AS date) AS work_date, SUM(ZZs_CzasMin) AS total_minutes
+                     FROM dbo.CtiZlecenieZasob
+                     GROUP BY ZZs_CZNID, ZZs_CZID, ZZs_PrcId, CAST(ZZs_DataOd AS date)
                     ) AS wt2
                     INNER JOIN dbo.CtiZasob cz2 ON wt2.ZZs_CZID = cz2.CZ_ID
                     LEFT JOIN (
