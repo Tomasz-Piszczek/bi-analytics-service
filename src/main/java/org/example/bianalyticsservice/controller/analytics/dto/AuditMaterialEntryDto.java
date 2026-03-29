@@ -6,15 +6,14 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
-import java.util.List;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class WorkerDailyJobEntryDto {
-    private String numerZlecenia;
-    private String productTypeId;
-    private BigDecimal minutesWorked;
-    private List<SessionDto> sessions;
+public class AuditMaterialEntryDto {
+    private String twrKod;
+    private BigDecimal expectedIlosc;  // null = nie powinno być
+    private BigDecimal actualIlosc;    // null = brakuje
+    private boolean ok;
 }

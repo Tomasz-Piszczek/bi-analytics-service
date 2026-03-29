@@ -6,15 +6,14 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
-import java.util.List;
+import java.time.LocalDateTime;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class WorkerDailyJobEntryDto {
-    private String numerZlecenia;
-    private String productTypeId;
+public class SessionDto {
+    private LocalDateTime timeFrom;
+    private LocalDateTime timeTo;
     private BigDecimal minutesWorked;
-    private List<SessionDto> sessions;
 }

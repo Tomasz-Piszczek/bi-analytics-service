@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.bianalyticsservice.config.CacheConfig;
 import org.example.bianalyticsservice.controller.analytics.dto.DocumentElementDto;
 import org.example.bianalyticsservice.controller.analytics.dto.JobDto;
+import org.example.bianalyticsservice.controller.analytics.dto.SessionDto;
 import org.example.bianalyticsservice.controller.analytics.dto.WorkerTimeDto;
 import org.example.bianalyticsservice.controller.employee.dto.DailyHoursDto;
 import org.example.bianalyticsservice.controller.employee.dto.EmployeeHoursDto;
@@ -145,21 +146,52 @@ public class WorkerAnalyticsCacheService {
             return Collections.emptyList();
         }
 
-        List<Map<String, Object>> workersList = objectMapper.readValue(
+        List<Map<String, Object>> sessionsList = objectMapper.readValue(
                 workersJson,
                 new TypeReference<>() {}
         );
 
-        return workersList.stream()
-                .map(map -> WorkerTimeDto.builder()
-                        .workerId((String) map.get("workerId"))
-                        .resourceId((String) map.get("resourceId"))
-                        .workDate(map.get("workDate") != null ? LocalDate.parse(map.get("workDate").toString()) : null)
-                        .minutesWorked(new BigDecimal(map.get("minutesWorked").toString()))
-                        .timeFrom(map.get("timeFrom") != null ? LocalDateTime.parse(map.get("timeFrom").toString()) : null)
-                        .timeTo(map.get("timeTo") != null ? LocalDateTime.parse(map.get("timeTo").toString()) : null)
-                        .build())
-                .collect(Collectors.toList());
+        // Group sessions by workerId + resourceId + workDate
+        Map<String, WorkerTimeDto> groupedWorkers = new LinkedHashMap<>();
+
+        for (Map<String, Object> map : sessionsList) {
+            String workerId = (String) map.get("workerId");
+            String resourceId = (String) map.get("resourceId");
+            LocalDate workDate = map.get("workDate") != null ? LocalDate.parse(map.get("workDate").toString()) : null;
+            BigDecimal minutesWorked = new BigDecimal(map.get("minutesWorked").toString());
+            LocalDateTime timeFrom = map.get("timeFrom") != null ? LocalDateTime.parse(map.get("timeFrom").toString()) : null;
+            LocalDateTime timeTo = map.get("timeTo") != null ? LocalDateTime.parse(map.get("timeTo").toString()) : null;
+
+            // Create session
+            SessionDto session = SessionDto.builder()
+                    .timeFrom(timeFrom)
+                    .timeTo(timeTo)
+                    .minutesWorked(minutesWorked)
+                    .build();
+
+            // Create composite key
+            String key = workerId + "|" + resourceId + "|" + workDate;
+
+            WorkerTimeDto existing = groupedWorkers.get(key);
+            if (existing != null) {
+                // Add session and sum minutes
+                existing.getSessions().add(session);
+                existing.setMinutesWorked(existing.getMinutesWorked().add(minutesWorked));
+            } else {
+                // Create new worker entry
+                List<SessionDto> sessions = new ArrayList<>();
+                sessions.add(session);
+                groupedWorkers.put(key, WorkerTimeDto.builder()
+                        .workerId(workerId)
+                        .resourceId(resourceId)
+                        .workDate(workDate)
+                        .minutesWorked(minutesWorked)
+                        .sessions(sessions)
+                        .build());
+            }
+        }
+
+        return new ArrayList<>(groupedWorkers.values());
     }
 
     @SneakyThrows

@@ -5,16 +5,18 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class WorkerDailyJobEntryDto {
+public class AuditOrderDto {
     private String numerZlecenia;
+    private LocalDate dataZlecenia;
     private String productTypeId;
-    private BigDecimal minutesWorked;
-    private List<SessionDto> sessions;
+    private List<AuditMaterialEntryDto> materials;
+    private boolean orderOk;
+    private List<WorkerTimeEntryDto> workerTimeEntries;
 }

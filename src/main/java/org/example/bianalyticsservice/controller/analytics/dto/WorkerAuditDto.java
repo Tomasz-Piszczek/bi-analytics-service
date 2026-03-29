@@ -5,16 +5,17 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class WorkerDailyJobEntryDto {
-    private String numerZlecenia;
-    private String productTypeId;
-    private BigDecimal minutesWorked;
-    private List<SessionDto> sessions;
+public class WorkerAuditDto {
+    private String workerId;
+    private List<AuditOrderDto> correctOrders;
+    private List<AuditOrderDto> incorrectOrders;
+    private int totalOrders;
+    private int correctCount;
+    private int incorrectCount;
 }

@@ -47,8 +47,7 @@ public class WorkerAnalyticsService {
                                 .numerZlecenia(job.getNumerZlecenia())
                                 .productTypeId(job.getProductTypeId())
                                 .minutesWorked(w.getMinutesWorked())
-                                .timeFrom(w.getTimeFrom())
-                                .timeTo(w.getTimeTo())
+                                .sessions(w.getSessions())
                                 .build()))
                 .collect(Collectors.toList());
     }

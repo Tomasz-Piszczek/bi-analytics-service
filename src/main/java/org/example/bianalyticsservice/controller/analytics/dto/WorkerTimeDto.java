@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @Builder
@@ -18,8 +18,7 @@ public class WorkerTimeDto {
     private String resourceId;
     private LocalDate workDate;
     private BigDecimal minutesWorked;
-    private LocalDateTime timeFrom;
-    private LocalDateTime timeTo;
+    private List<SessionDto> sessions;
 
     /**
      * Speed index contribution percentage (Wpływ).

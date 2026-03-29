@@ -18,39 +18,24 @@ public interface WorkerAnalyticsRepository extends JpaRepository<CtiZlecenieNag,
             t.Twr_Kod                            AS productTypeId,
             czn.CZN_Ilosc                        AS quantity,
             (
-                SELECT sub.workerId, sub.resourceId, sub.workDate,
-                       SUM(sub.minutesWorked) AS minutesWorked,
-                       MIN(sub.timeFrom) AS timeFrom,
-                       MAX(sub.timeTo) AS timeTo
-                FROM (
-                    SELECT
-                        COALESCE(prc_single.CZ_Kod, cz2.CZ_Kod) AS workerId,
-                        cz2.CZ_Kod AS resourceId,
-                        CAST(wt2.work_date AS date) AS workDate,
-                        wt2.total_minutes AS minutesWorked,
-                        wt2.time_from AS timeFrom,
-                        wt2.time_to AS timeTo
-                    FROM (
-                     SELECT ZZs_CZNID, ZZs_CZID, ZZs_PrcId,
-                            CAST(ZZs_DataOd AS date) AS work_date,
-                            MIN(ZZs_DataOd) AS time_from,
-                            MAX(ZZs_DataDo) AS time_to,
-                            SUM(ZZs_CzasMin) AS total_minutes
-                     FROM dbo.CtiZlecenieZasob
-                     GROUP BY ZZs_CZNID, ZZs_CZID, ZZs_PrcId, CAST(ZZs_DataOd AS date)
-                    ) AS wt2
-                    INNER JOIN dbo.CtiZasob cz2 ON wt2.ZZs_CZID = cz2.CZ_ID
-                    LEFT JOIN (
-                        SELECT zsp.ZsP_PrcId, MAX(cz_prc.CZ_Kod) AS CZ_Kod
-                        FROM dbo.CtiZasobPrc zsp
-                        INNER JOIN dbo.CtiZasob cz_prc ON zsp.ZsP_CZID = cz_prc.CZ_ID
-                        GROUP BY zsp.ZsP_PrcId
-                        HAVING COUNT(DISTINCT zsp.ZsP_CZID) = 1
-                    ) prc_single ON prc_single.ZsP_PrcId = wt2.ZZs_PrcId
-                    WHERE wt2.ZZs_CZNID = czn.CZN_ID
-                ) sub
-                GROUP BY sub.workerId, sub.resourceId, sub.workDate
-                ORDER BY sub.workerId, sub.workDate
+                SELECT
+                    COALESCE(prc_single.CZ_Kod, cz2.CZ_Kod) AS workerId,
+                    cz2.CZ_Kod AS resourceId,
+                    CAST(zzs2.ZZs_DataOd AS date) AS workDate,
+                    zzs2.ZZs_CzasMin AS minutesWorked,
+                    zzs2.ZZs_DataOd AS timeFrom,
+                    zzs2.ZZs_DataDo AS timeTo
+                FROM dbo.CtiZlecenieZasob zzs2
+                INNER JOIN dbo.CtiZasob cz2 ON zzs2.ZZs_CZID = cz2.CZ_ID
+                LEFT JOIN (
+                    SELECT zsp.ZsP_PrcId, MAX(cz_prc.CZ_Kod) AS CZ_Kod
+                    FROM dbo.CtiZasobPrc zsp
+                    INNER JOIN dbo.CtiZasob cz_prc ON zsp.ZsP_CZID = cz_prc.CZ_ID
+                    GROUP BY zsp.ZsP_PrcId
+                    HAVING COUNT(DISTINCT zsp.ZsP_CZID) = 1
+                ) prc_single ON prc_single.ZsP_PrcId = zzs2.ZZs_PrcId
+                WHERE zzs2.ZZs_CZNID = czn.CZN_ID
+                ORDER BY COALESCE(prc_single.CZ_Kod, cz2.CZ_Kod), zzs2.ZZs_DataOd
                 FOR JSON PATH
             )                                    AS workers,
             (

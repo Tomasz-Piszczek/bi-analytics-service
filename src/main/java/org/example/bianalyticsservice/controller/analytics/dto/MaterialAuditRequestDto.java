@@ -6,15 +6,15 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
-import java.util.List;
+import java.time.LocalDate;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class WorkerDailyJobEntryDto {
-    private String numerZlecenia;
-    private String productTypeId;
-    private BigDecimal minutesWorked;
-    private List<SessionDto> sessions;
+public class MaterialAuditRequestDto {
+    private LocalDate dateFrom;
+    private LocalDate dateTo;
+    private BigDecimal offsetPercent;  // np. 10.0 = 10%
+    private BigDecimal offsetNumber;   // np. 7.0
 }

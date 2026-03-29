@@ -2,9 +2,8 @@ package org.example.bianalyticsservice.controller.analytics;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.example.bianalyticsservice.controller.analytics.dto.WorkerAnalyticsRequestDto;
-import org.example.bianalyticsservice.controller.analytics.dto.WorkerAnalyticsResponseDto;
-import org.example.bianalyticsservice.controller.analytics.dto.WorkerDailyJobEntryDto;
+import org.example.bianalyticsservice.controller.analytics.dto.*;
+import org.example.bianalyticsservice.service.MaterialAuditService;
 import org.example.bianalyticsservice.service.WorkerAnalyticsCacheService;
 import org.example.bianalyticsservice.service.WorkerAnalyticsService;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -22,6 +21,7 @@ public class AnalyticsController {
 
     private final WorkerAnalyticsService workerAnalyticsService;
     private final WorkerAnalyticsCacheService workerAnalyticsCacheService;
+    private final MaterialAuditService materialAuditService;
 
     @PostMapping("/worker-analytics")
     public ResponseEntity<WorkerAnalyticsResponseDto> getWorkerAnalytics(
@@ -41,7 +41,16 @@ public class AnalyticsController {
     public ResponseEntity<List<WorkerDailyJobEntryDto>> getWorkerDailyJobs(
             @RequestParam String workerId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        log.info("[getWorkerDailyJobs] workerId={} date={}", workerId, date);
+        log.info("[getWorkerDailyJobs] workerIdx={} date={}", workerId, date);
         return ResponseEntity.ok(workerAnalyticsService.getWorkerDailyJobs(workerId, date));
+    }
+
+    @PostMapping("/material-audit")
+    public ResponseEntity<MaterialAuditResponseDto> getMaterialAudit(
+            @RequestBody MaterialAuditRequestDto request) {
+        log.info("[getMaterialAudit] dateFrom={} dateTo={} offsetPercent={} offsetNumber={}",
+                request.getDateFrom(), request.getDateTo(),
+                request.getOffsetPercent(), request.getOffsetNumber());
+        return ResponseEntity.ok(materialAuditService.getMaterialAudit(request));
     }
 }
