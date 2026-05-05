@@ -7,12 +7,15 @@ import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.example.bianalyticsservice.config.CacheConfig;
 import org.example.bianalyticsservice.controller.analytics.dto.DocumentElementDto;
+import org.example.bianalyticsservice.controller.analytics.dto.InvoiceLineDto;
+import org.example.bianalyticsservice.controller.analytics.dto.InvoiceLinkDto;
 import org.example.bianalyticsservice.controller.analytics.dto.JobDto;
 import org.example.bianalyticsservice.controller.analytics.dto.SessionDto;
 import org.example.bianalyticsservice.controller.analytics.dto.WorkerTimeDto;
 import org.example.bianalyticsservice.controller.employee.dto.DailyHoursDto;
 import org.example.bianalyticsservice.controller.employee.dto.EmployeeHoursDto;
 import org.example.bianalyticsservice.repository.CtiProdukcjaPanelRCPRepository;
+import org.example.bianalyticsservice.repository.JobInvoiceLinkRepository;
 import org.example.bianalyticsservice.repository.WorkerAnalyticsRepository;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -34,6 +37,7 @@ public class WorkerAnalyticsCacheService {
 
     private final WorkerAnalyticsRepository workerAnalyticsRepository;
     private final CtiProdukcjaPanelRCPRepository ctiProdukcjaPanelRCPRepository;
+    private final JobInvoiceLinkRepository jobInvoiceLinkRepository;
     private final ObjectMapper objectMapper;
 
     /**
@@ -109,10 +113,68 @@ public class WorkerAnalyticsCacheService {
 
     @Caching(evict = {
             @CacheEvict(value = CacheConfig.WORKER_ANALYTICS_CACHE, allEntries = true),
-            @CacheEvict(value = CacheConfig.EMPLOYEE_HOURS_CACHE, allEntries = true)
+            @CacheEvict(value = CacheConfig.EMPLOYEE_HOURS_CACHE, allEntries = true),
+            @CacheEvict(value = CacheConfig.INVOICE_LINKS_CACHE, allEntries = true)
     })
     public void evictCache() {
         log.info("All analytics caches evicted");
+    }
+
+    /**
+     * Returns Map<cznId, List<InvoiceLinkDto>> — a single ZP can be linked to multiple FS invoices.
+     * Single batched query, cached.
+     */
+    @Cacheable(value = CacheConfig.INVOICE_LINKS_CACHE, key = "'allInvoiceLinks'")
+    public Map<Integer, List<InvoiceLinkDto>> getAllInvoiceLinks() {
+        log.info("Cache MISS - fetching invoice links from database...");
+        long start = System.currentTimeMillis();
+
+        List<Object[]> rows = jobInvoiceLinkRepository.findAllInvoiceLinks();
+        long dbTime = System.currentTimeMillis() - start;
+        log.info("Invoice link query completed in {}ms, returned {} rows", dbTime, rows.size());
+
+        Map<Integer, List<InvoiceLinkDto>> map = new HashMap<>();
+        for (Object[] row : rows) {
+            Integer cznId = (Integer) row[0];
+            Integer roId = (Integer) row[1];
+            String roNo = (String) row[2];
+            Integer fsId = (Integer) row[3];
+            String fsNo = (String) row[4];
+            LocalDate fsDate = toLocalDate(row[5]);
+            Integer coCount = ((Number) row[6]).intValue();
+            String fsLinesJson = (String) row[7];
+            BigDecimal fsKorr = row[8] == null ? BigDecimal.ZERO : new BigDecimal(row[8].toString());
+            String jobProductCodeFull = row.length > 9 ? (String) row[9] : null;
+
+            InvoiceLinkDto link = InvoiceLinkDto.builder()
+                    .cznId(cznId)
+                    .roId(roId)
+                    .roNumer(roNo)
+                    .fsId(fsId)
+                    .fsNumer(fsNo)
+                    .fsDate(fsDate)
+                    .coBundledZpCount(coCount)
+                    .fsLines(parseInvoiceLinesJson(fsLinesJson))
+                    .fsKorrectionNet(fsKorr)
+                    .jobProductCodeFull(jobProductCodeFull)
+                    .build();
+            map.computeIfAbsent(cznId, k -> new ArrayList<>()).add(link);
+        }
+        log.info("Indexed invoice links for {} distinct production orders", map.size());
+        return map;
+    }
+
+    @SneakyThrows
+    private List<InvoiceLineDto> parseInvoiceLinesJson(String json) {
+        if (json == null || json.isEmpty()) return Collections.emptyList();
+        List<Map<String, Object>> raw = objectMapper.readValue(json, new TypeReference<>() {});
+        return raw.stream()
+                .map(m -> InvoiceLineDto.builder()
+                        .twrKod((String) m.get("twrKod"))
+                        .ilosc(m.get("ilosc") == null ? null : new BigDecimal(m.get("ilosc").toString()))
+                        .wartoscNetto(m.get("wartoscNetto") == null ? null : new BigDecimal(m.get("wartoscNetto").toString()))
+                        .build())
+                .collect(Collectors.toList());
     }
 
     private LocalDate toLocalDate(Object obj) {

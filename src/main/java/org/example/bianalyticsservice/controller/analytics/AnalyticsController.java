@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.bianalyticsservice.controller.analytics.dto.*;
 import org.example.bianalyticsservice.service.MaterialAuditService;
+import org.example.bianalyticsservice.service.ProfitabilityService;
 import org.example.bianalyticsservice.service.WorkerAnalyticsCacheService;
 import org.example.bianalyticsservice.service.WorkerAnalyticsService;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -22,6 +23,7 @@ public class AnalyticsController {
     private final WorkerAnalyticsService workerAnalyticsService;
     private final WorkerAnalyticsCacheService workerAnalyticsCacheService;
     private final MaterialAuditService materialAuditService;
+    private final ProfitabilityService profitabilityService;
 
     @PostMapping("/worker-analytics")
     public ResponseEntity<WorkerAnalyticsResponseDto> getWorkerAnalytics(
@@ -52,5 +54,22 @@ public class AnalyticsController {
                 request.getDateFrom(), request.getDateTo(),
                 request.getOffsetPercent(), request.getOffsetNumber());
         return ResponseEntity.ok(materialAuditService.getMaterialAudit(request));
+    }
+
+    @PostMapping("/job-profitability")
+    public ResponseEntity<JobProfitabilityResponseDto> getJobProfitability(
+            @RequestBody JobProfitabilityRequestDto request) {
+        log.info("[getJobProfitability] dateFrom={} dateTo={} hourlyRate={} minConfidence={}",
+                request.getDateFrom(), request.getDateTo(),
+                request.getHourlyRate(), request.getMinConfidence());
+        return ResponseEntity.ok(profitabilityService.getJobProfitability(request));
+    }
+
+    @PostMapping("/worker-cash-contribution")
+    public ResponseEntity<WorkerCashResponseDto> getWorkerCashContribution(
+            @RequestBody WorkerCashRequestDto request) {
+        log.info("[getWorkerCashContribution] dateFrom={} dateTo={} hourlyRate={}",
+                request.getDateFrom(), request.getDateTo(), request.getHourlyRate());
+        return ResponseEntity.ok(profitabilityService.getWorkerCashContribution(request));
     }
 }

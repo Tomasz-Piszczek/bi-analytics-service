@@ -13,12 +13,14 @@ public class CacheConfig {
 
     public static final String WORKER_ANALYTICS_CACHE = "workerAnalyticsCache";
     public static final String EMPLOYEE_HOURS_CACHE = "employeeHoursCache";
+    public static final String INVOICE_LINKS_CACHE = "invoiceLinksCache";
 
     @Bean
     public CacheManager cacheManager() {
         CaffeineCacheManager cacheManager = new CaffeineCacheManager(
                 WORKER_ANALYTICS_CACHE,
-                EMPLOYEE_HOURS_CACHE
+                EMPLOYEE_HOURS_CACHE,
+                INVOICE_LINKS_CACHE
         );
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .expireAfterWrite(30, TimeUnit.MINUTES)  // Cache expires after 30 minutes
