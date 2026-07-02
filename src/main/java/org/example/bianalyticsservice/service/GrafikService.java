@@ -217,12 +217,53 @@ public class GrafikService {
         return String.format("%02d:%02d", t.getHour(), t.getMinute());
     }
 
+    /** One availability window of a resource, as concrete datetimes. */
+    public record AvailInterval(LocalDateTime from, LocalDateTime to) {}
+
     /**
-     * Move/resize a plan row on the timeline. Both ends are snapped to the nearest
-     * 15 minutes and ONLY the time window ({@code CZS_CzasStart}/{@code CZS_CzasEnd})
-     * is written — {@code CZS_CzasPracy} (ERP work-hours) is left untouched.
-     * Returns the refreshed entry. Throws if the row does not exist or the window
-     * is non-positive after snapping.
+     * Effective work minutes of the window [start, end]:
+     * <ul>
+     *   <li><b>single-day</b> (same start/end date): the FULL window (end - start),
+     *       regardless of availability;</li>
+     *   <li><b>multi-day</b>: only the parts of [start, end] that fall inside the
+     *       given availability windows — non-available gaps are excluded.</li>
+     * </ul>
+     */
+    static long effectiveMinutes(LocalDateTime start, LocalDateTime end, List<AvailInterval> availability) {
+        if (!end.isAfter(start)) {
+            return 0;
+        }
+        if (start.toLocalDate().equals(end.toLocalDate())) {
+            return Duration.between(start, end).toMinutes();
+        }
+        long sum = 0;
+        for (AvailInterval iv : availability) {
+            LocalDateTime s = start.isAfter(iv.from()) ? start : iv.from();
+            LocalDateTime e = end.isBefore(iv.to()) ? end : iv.to();
+            if (s.isBefore(e)) {
+                sum += Duration.between(s, e).toMinutes();
+            }
+        }
+        return sum;
+    }
+
+    /** Per-unit CzasPracy in hours = effectiveMinutes / 60 / ceil(qty / divisor) (mult=1 if divisor<=0). */
+    static BigDecimal czasPracyHours(long effMinutes, BigDecimal qty, BigDecimal divisor) {
+        long mult = 1;
+        if (divisor != null && divisor.signum() > 0 && qty != null && qty.signum() > 0) {
+            mult = (long) Math.ceil(qty.doubleValue() / divisor.doubleValue());
+            if (mult < 1) {
+                mult = 1;
+            }
+        }
+        return BigDecimal.valueOf(effMinutes).divide(BigDecimal.valueOf(60L * mult), 4, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Move/resize a plan row on the timeline. Snaps both ends to 15 min, then writes
+     * the window ({@code CZS_CzasStart}/{@code CZS_CzasEnd}) AND recomputes
+     * {@code CZS_CzasPracy} (see {@link #effectiveMinutes}/{@link #czasPracyHours}) so
+     * Comarch — which derives the resource end from CzasPracy — keeps the edit.
      */
     public GrafikEntryDto updateAssignment(Integer czsId, LocalDateTime rawStart, LocalDateTime rawEnd) {
         if (rawStart == null || rawEnd == null) {
@@ -231,29 +272,54 @@ public class GrafikService {
         LocalDateTime start = snapTo15(rawStart);
         LocalDateTime end = snapTo15(rawEnd);
         long minutes = Duration.between(start, end).toMinutes();
-        if (minutes < SNAP_MINUTES) {
-            throw new IllegalArgumentException(
-                    "Window must be at least " + SNAP_MINUTES + " min (start=" + start + ", end=" + end + ")");
+        // end may equal start (zero-length is allowed by the ERP); only reject end < start
+        if (minutes < 0) {
+            throw new IllegalArgumentException("End must not be before start (start=" + start + ", end=" + end + ")");
         }
-        log.info("[updateAssignment] czsId={} start={} end={}", czsId, start, end);
 
-        int updated = repository.updateWindow(czsId, start, end);
+        CtiZasobDok row = repository.findById(czsId)
+                .orElseThrow(() -> new IllegalArgumentException("No grafik row with czsId=" + czsId));
+
+        long effMin;
+        if (start.toLocalDate().equals(end.toLocalDate())) {
+            effMin = minutes;
+        } else {
+            List<AvailInterval> avail = loadResourceAvailability(row.getResourceId(), start.toLocalDate(), end.toLocalDate());
+            effMin = effectiveMinutes(start, end, avail);
+        }
+        BigDecimal czasPracy = czasPracyHours(effMin, repository.findOrderQuantity(czsId), row.getDivisor());
+        log.info("[updateAssignment] czsId={} start={} end={} effMin={} czasPracy={}", czsId, start, end, effMin, czasPracy);
+
+        int updated = repository.updateWindow(czsId, start, end, czasPracy);
         if (updated == 0) {
             throw new IllegalArgumentException("No grafik row with czsId=" + czsId);
         }
 
-        CtiZasobDok row = repository.findById(czsId)
-                .orElseThrow(() -> new IllegalStateException("Row vanished after update: " + czsId));
         return GrafikEntryDto.builder()
-                .czsId(row.getId())
-                .plannedHours(row.getWorkTime())
-                .plannedMinutes(toMinutes(row.getWorkTime()))
-                .timeUnit(row.getTimeUnit())
-                .startTime(row.getStartTime())
-                .endTime(row.getEndTime())
+                .czsId(czsId)
+                .plannedHours(czasPracy)
+                .plannedMinutes(toMinutes(czasPracy))
+                .timeUnit(2)
+                .startTime(start)
+                .endTime(end)
                 .quantity(row.getQuantity())
                 .finished(row.getFinished())
                 .build();
+    }
+
+    private List<AvailInterval> loadResourceAvailability(Integer czid, LocalDate from, LocalDate to) {
+        List<AvailInterval> out = new ArrayList<>();
+        if (czid == null) {
+            return out;
+        }
+        for (Object[] r : repository.findResourceAvailability(czid, from, to)) {
+            LocalDateTime f = toLocalDateTime(r[0]);
+            LocalDateTime t = toLocalDateTime(r[1]);
+            if (f != null && t != null) {
+                out.add(new AvailInterval(f, t));
+            }
+        }
+        return out;
     }
 
     /** Snap a timestamp to the nearest 15 minutes (seconds/nanos dropped). */

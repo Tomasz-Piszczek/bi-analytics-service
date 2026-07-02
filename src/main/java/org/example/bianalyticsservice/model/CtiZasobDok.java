@@ -75,4 +75,7 @@ public class CtiZasobDok {
 
     @Column(name = "CZS_WieleOsob")
     private Integer multiplePeople;
+
+    @Column(name = "CZS_Dzielnik")
+    private BigDecimal divisor;
 }

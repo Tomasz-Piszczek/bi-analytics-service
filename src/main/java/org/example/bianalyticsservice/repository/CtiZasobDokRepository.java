@@ -205,25 +205,65 @@ public interface CtiZasobDokRepository extends JpaRepository<CtiZasobDok, Intege
     List<Object[]> findAvailability(@Param("day") LocalDate day);
 
     /**
-     * Move/resize a single plan row: writes ONLY the planned time window
-     * ({@code CZS_CzasStart}/{@code CZS_CzasEnd}). {@code CZS_CzasPracy} (the ERP
-     * work-hours) and {@code CZS_JMCzasu} are intentionally left untouched — the
-     * window and the work-hours are independent in the ERP, so we never overwrite
-     * work-hours from the calendar span. Returns rows affected (0 if id missing).
+     * Move/resize a single plan row: writes the window ({@code CZS_CzasStart}/
+     * {@code CZS_CzasEnd}) AND recomputes {@code CZS_CzasPracy} so Comarch keeps
+     * the edit — Comarch derives the resource END from CzasPracy, so leaving it
+     * stale makes the ERP revert the window on open.
      *
-     * NOTE: requires UPDATE permission on dbo.CtiZasobDok for the app's DB user
-     * (the default {@code myapp} login is db_datareader only — grant UPDATE on
-     * this table, or db_datawriter, before this can succeed).
+     * CzasPracy (per unit, hours; {@code CZS_JMCzasu} pinned to 2) =
+     *   effectiveMinutes / 60 / mult
+     * where mult = ceil(CZN_Ilosc / CZS_Dzielnik) (1 if divisor <= 0), and
+     *   effectiveMinutes =
+     *     - single-day (start date == end date): the FULL window (end - start),
+     *       regardless of availability;
+     *     - multi-day: only the parts of [start,end] that fall inside the worker's
+     *       availability windows (CtiZasobDostepny) — non-available gaps (nights,
+     *       before/after each day's availability) are excluded.
+     * Uzbrojenie/Rozbrojenie are 0 for all worker rows, so they drop out.
+     *
+     * NOTE: requires UPDATE on CZS_CzasStart, CZS_CzasEnd, CZS_CzasPracy, CZS_JMCzasu.
      */
     @Modifying
     @Transactional
     @Query(value = """
         UPDATE dbo.CtiZasobDok
         SET CZS_CzasStart = :start,
-            CZS_CzasEnd   = :end
+            CZS_CzasEnd   = :end,
+            CZS_CzasPracy = :czasPracy,
+            CZS_JMCzasu   = 2
         WHERE CZS_ID = :czsId
         """, nativeQuery = true)
     int updateWindow(@Param("czsId") Integer czsId,
                      @Param("start") LocalDateTime start,
-                     @Param("end") LocalDateTime end);
+                     @Param("end") LocalDateTime end,
+                     @Param("czasPracy") java.math.BigDecimal czasPracy);
+
+    /** Order quantity (CZN_Ilosc) for the order behind a plan row — used in the CzasPracy divisor. */
+    @Query(value = """
+        SELECT n.CZN_Ilosc
+        FROM dbo.CtiZasobDok d
+        INNER JOIN dbo.CtiZlecenieNag n ON n.CZN_ID = d.CZS_CTNID
+        WHERE d.CZS_ID = :czsId
+        """, nativeQuery = true)
+    java.math.BigDecimal findOrderQuantity(@Param("czsId") Integer czsId);
+
+    /**
+     * A resource's availability windows (as concrete datetimes) overlapping a date
+     * range — used to compute multi-day CzasPracy within availability. Whole-day
+     * rows ({@code ZsD_CalyDzien = 1}) become [date 00:00, next-day 00:00].
+     */
+    @Query(value = """
+        SELECT ZsD_CzasOd AS fromT, ZsD_CzasDo AS toT
+        FROM dbo.CtiZasobDostepny
+        WHERE ZsD_CZID = :czid AND ZsD_CalyDzien = 0
+          AND ZsD_Data BETWEEN :from AND :to
+        UNION ALL
+        SELECT CAST(ZsD_Data AS datetime), DATEADD(day, 1, CAST(ZsD_Data AS datetime))
+        FROM dbo.CtiZasobDostepny
+        WHERE ZsD_CZID = :czid AND ZsD_CalyDzien = 1
+          AND ZsD_Data BETWEEN :from AND :to
+        """, nativeQuery = true)
+    List<Object[]> findResourceAvailability(@Param("czid") Integer czid,
+                                            @Param("from") LocalDate from,
+                                            @Param("to") LocalDate to);
 }
