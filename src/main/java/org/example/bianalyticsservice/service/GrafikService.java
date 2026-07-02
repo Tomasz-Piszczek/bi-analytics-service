@@ -72,6 +72,8 @@ public class GrafikService {
             workers.add(GrafikOrderDetailDto.Worker.builder()
                     .workerName(str(r[0]))
                     .minutes(min == null ? 0 : min.setScale(0, RoundingMode.HALF_UP).intValue())
+                    .fromTime(toLocalDateTime(r[2]))
+                    .toTime(toLocalDateTime(r[3]))
                     .build());
         }
         List<GrafikOrderDetailDto.Material> materials = new ArrayList<>();

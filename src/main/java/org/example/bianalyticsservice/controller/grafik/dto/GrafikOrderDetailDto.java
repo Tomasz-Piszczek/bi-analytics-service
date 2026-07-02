@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -34,6 +35,9 @@ public class GrafikOrderDetailDto {
         private String workerName;
         /** Total actually-logged minutes on this order. */
         private Integer minutes;
+        /** Earliest logged start and latest logged end on this order. */
+        private LocalDateTime fromTime;
+        private LocalDateTime toTime;
     }
 
     @Data

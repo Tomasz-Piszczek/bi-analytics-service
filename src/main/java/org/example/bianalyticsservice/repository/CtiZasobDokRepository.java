@@ -112,7 +112,9 @@ public interface CtiZasobDokRepository extends JpaRepository<CtiZasobDok, Intege
     @Query(value = """
         SELECT
             CAST(COALESCE(prc_single.CZ_Kod, cz2.CZ_Kod) AS nvarchar(50)) AS workerName,
-            SUM(z.ZZs_CzasMin) AS minutes
+            SUM(z.ZZs_CzasMin) AS minutes,
+            MIN(z.ZZs_DataOd)  AS fromTime,
+            MAX(z.ZZs_DataDo)  AS toTime
         FROM dbo.CtiZlecenieZasob z
         INNER JOIN dbo.CtiZasob cz2 ON z.ZZs_CZID = cz2.CZ_ID
         LEFT JOIN (
