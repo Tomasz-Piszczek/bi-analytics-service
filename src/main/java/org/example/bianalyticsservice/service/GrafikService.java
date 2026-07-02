@@ -4,7 +4,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.bianalyticsservice.controller.grafik.dto.AvailabilityIntervalDto;
 import org.example.bianalyticsservice.controller.grafik.dto.GrafikEntryDto;
+import org.example.bianalyticsservice.controller.grafik.dto.GrafikOrderDetailDto;
 import org.example.bianalyticsservice.controller.grafik.dto.GrafikResponseDto;
+import org.example.bianalyticsservice.controller.grafik.dto.GrafikSearchResultDto;
 import org.example.bianalyticsservice.controller.grafik.dto.GrafikWorkerDto;
 import org.example.bianalyticsservice.model.CtiZasobDok;
 import org.example.bianalyticsservice.repository.CtiZasobDokRepository;
@@ -42,9 +44,53 @@ public class GrafikService {
         return getGrafik(date, date);
     }
 
-    /** Grafik for a date window [from, to], grouped by worker. */
+    /** PLANNED grafik for a date window [from, to], grouped by worker. */
     public GrafikResponseDto getGrafik(LocalDate from, LocalDate to) {
-        List<Object[]> rows = repository.findGrafik(from, to);
+        return buildResponse(repository.findGrafik(from, to), from, to);
+    }
+
+    /** ACTUAL (rzeczywisty) grafik — real logged work from CtiZlecenieZasob. */
+    public GrafikResponseDto getGrafikActual(LocalDate from, LocalDate to) {
+        return buildResponse(repository.findGrafikActual(from, to), from, to);
+    }
+
+    /** Order detail for the actual-view popover: who worked (with minutes) + materials issued. */
+    public GrafikOrderDetailDto getOrderDetail(Integer orderId) {
+        GrafikOrderDetailDto.GrafikOrderDetailDtoBuilder b = GrafikOrderDetailDto.builder().orderId(orderId);
+        List<Object[]> hdr = repository.findOrderHeader(orderId);
+        if (!hdr.isEmpty()) {
+            Object[] h = hdr.get(0);
+            b.orderNumber(str(h[0]))
+             .productCode(str(h[1]))
+             .quantity(toBigDecimal(h[2]))
+             .status(toInt(h[3]))
+             .contractorName(str(h[4]));
+        }
+        List<GrafikOrderDetailDto.Worker> workers = new ArrayList<>();
+        for (Object[] r : repository.findOrderWorkers(orderId)) {
+            BigDecimal min = toBigDecimal(r[1]);
+            workers.add(GrafikOrderDetailDto.Worker.builder()
+                    .workerName(str(r[0]))
+                    .minutes(min == null ? 0 : min.setScale(0, RoundingMode.HALF_UP).intValue())
+                    .build());
+        }
+        List<GrafikOrderDetailDto.Material> materials = new ArrayList<>();
+        for (Object[] r : repository.findOrderMaterials(orderId)) {
+            materials.add(GrafikOrderDetailDto.Material.builder()
+                    .twrKod(str(r[0]))
+                    .ilosc(toBigDecimal(r[1]))
+                    .wartoscNetto(toBigDecimal(r[2]))
+                    .build());
+        }
+        return b.workers(workers).materials(materials).build();
+    }
+
+    private static String str(Object o) {
+        return o == null ? null : o.toString().trim();
+    }
+
+    /** Group raw rows (planned or actual, same column shape) by worker + attach availability. */
+    private GrafikResponseDto buildResponse(List<Object[]> rows, LocalDate from, LocalDate to) {
         Map<String, List<AvailabilityIntervalDto>> availByWorker = loadAvailability(from);
 
         Map<String, List<GrafikEntryDto>> byWorker = new LinkedHashMap<>();
@@ -82,6 +128,67 @@ public class GrafikService {
                 .totalHours(grandTotal)
                 .workers(workers)
                 .build();
+    }
+
+    /** Max distinct order/day groups returned by a search. */
+    private static final int SEARCH_LIMIT = 20;
+
+    /**
+     * Search the grafik by order number or contractor name. Rows are grouped by
+     * (order, day) so each result is a single jump target listing its workers,
+     * preserving the repository ranking (prefix match first, then furthest-future).
+     * Returns empty for blank/too-short queries.
+     */
+    public List<GrafikSearchResultDto> search(String q) {
+        if (q == null || q.trim().length() < 2) {
+            return List.of();
+        }
+        String term = escapeLike(q.trim());
+        List<Object[]> rows = repository.searchGrafik("%" + term + "%", term + "%");
+
+        Map<String, GrafikSearchResultDto> byGroup = new LinkedHashMap<>();
+        for (Object[] r : rows) {
+            GrafikEntryDto e = mapRow(r);
+            if (e.getStartTime() == null) {
+                continue;
+            }
+            String day = e.getStartTime().toLocalDate().toString();
+            String key = e.getOrderNumber() + "|" + day;
+            GrafikSearchResultDto g = byGroup.get(key);
+            if (g == null) {
+                if (byGroup.size() >= SEARCH_LIMIT) {
+                    continue;
+                }
+                g = GrafikSearchResultDto.builder()
+                        .date(day)
+                        .orderId(e.getOrderId())
+                        .orderNumber(e.getOrderNumber())
+                        .contractorName(e.getContractorName())
+                        .productCode(e.getProductCode())
+                        .orderStatus(e.getOrderStatus())
+                        .quantity(e.getQuantity())
+                        .startTime(hhmm(e.getStartTime()))
+                        .workers(new ArrayList<>())
+                        .czsIds(new ArrayList<>())
+                        .build();
+                byGroup.put(key, g);
+            }
+            String worker = e.getWorkerName();
+            if (worker != null && !worker.isBlank() && !g.getWorkers().contains(worker)) {
+                g.getWorkers().add(worker);
+            }
+            g.getCzsIds().add(e.getCzsId());
+            String hm = hhmm(e.getStartTime());
+            if (hm.compareTo(g.getStartTime()) < 0) {
+                g.setStartTime(hm);
+            }
+        }
+        return new ArrayList<>(byGroup.values());
+    }
+
+    /** Escape SQL LIKE wildcards via bracket-escaping (no ESCAPE clause needed). */
+    private static String escapeLike(String s) {
+        return s.replace("[", "[[]").replace("%", "[%]").replace("_", "[_]");
     }
 
     /** Availability windows per worker (by trimmed name) for a single day. */
