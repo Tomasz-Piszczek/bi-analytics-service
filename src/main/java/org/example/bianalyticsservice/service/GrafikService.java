@@ -139,7 +139,13 @@ public class GrafikService {
                 .orderCount(orderCount)
                 .totalHours(grandTotal)
                 .workers(workers)
-                .allWorkers(repository.findAllWorkerNames())
+                // trim + dedupe so trailing-space ERP names (e.g. "Elżbieta ") match the
+                // already-trimmed workers[].workerName and don't render as a duplicate row
+                .allWorkers(repository.findAllWorkerNames().stream()
+                        .map(n -> n == null ? "" : n.trim())
+                        .filter(n -> !n.isEmpty())
+                        .distinct()
+                        .toList())
                 .build();
     }
 
