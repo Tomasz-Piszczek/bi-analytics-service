@@ -200,9 +200,18 @@ GROUP BY zsp.ZsP_PrcId HAVING COUNT(DISTINCT zsp.ZsP_CZID) > 1"
 
 (The `dbq.py` helper is a 30-line `pymssql` wrapper; keep one in `/tmp` or `tools/` for scratch queries — tests use H2 so you can't reproduce ERP shape there.)
 
+## Writing to the ERP — the one exception (grafik)
+
+The service is read-only **except** for the grafik save path (`GrafikService.updateAssignment`, `PUT /api/grafik/{czsId}`), which has the only `@Modifying` queries in the codebase. Moving/resizing a grafik block writes:
+
+- `dbo.CtiZasobDok` (edited row): `CZS_CzasStart`, `CZS_CzasEnd`, `CZS_CzasPracy`, `CZS_JMCzasu`.
+- `dbo.CtiZlecenieNag` (order header): `CZN_CzasStart = MIN(resource starts)`, `CZN_CzasEnd = MAX(resource ends)`.
+
+Why both: Comarch recomputes the resource schedule on open. It derives the resource **end** from `CZS_CzasPracy` and anchors the resource **start** to the order start (`CZN_CzasStart`) — so leaving those stale makes the ERP silently revert the edit. `CzasPracy` (hours, `JMCzasu=2`) = `effectiveMinutes / 60 / ceil(CZN_Ilosc / CZS_Dzielnik)`; effectiveMinutes is the full window for a single-day block, or only the parts inside the worker's `CtiZasobDostepny` availability for a multi-day block. Logic is pure Java (`GrafikService.effectiveMinutes` / `czasPracyHours`), unit-tested in `GrafikServiceCzasPracyTest`; the write is `@Transactional` so the resource + header updates commit atomically. Production connects as `sa` (writes everything); local `myapp` needs column-level `GRANT UPDATE` on those four `CtiZasobDok` columns and two `CtiZlecenieNag` columns.
+
 ## Things this service does NOT do
 
-- Write to the ERP. Hibernate is read-only by convention; no `@Modifying` queries exist.
+- Write to the ERP anywhere **other than** the grafik save path documented above.
 - Authenticate users. JWT is validated locally with the shared secret, but the source of truth is GearTrackApi.
 - Maintain its own schema / migrations.
 - Calculate "absolute" worker efficiency. The Speed Index is **cohort-relative** by construction.

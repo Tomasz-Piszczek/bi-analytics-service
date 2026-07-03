@@ -5,12 +5,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.bianalyticsservice.controller.grafik.dto.AvailabilityIntervalDto;
 import org.example.bianalyticsservice.controller.grafik.dto.GrafikEntryDto;
 import org.example.bianalyticsservice.controller.grafik.dto.GrafikOrderDetailDto;
+import org.example.bianalyticsservice.controller.grafik.dto.GrafikOverdueDto;
 import org.example.bianalyticsservice.controller.grafik.dto.GrafikResponseDto;
 import org.example.bianalyticsservice.controller.grafik.dto.GrafikSearchResultDto;
 import org.example.bianalyticsservice.controller.grafik.dto.GrafikWorkerDto;
 import org.example.bianalyticsservice.model.CtiZasobDok;
 import org.example.bianalyticsservice.repository.CtiZasobDokRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -19,6 +21,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -96,6 +99,13 @@ public class GrafikService {
         Map<String, List<AvailabilityIntervalDto>> availByWorker = loadAvailability(from);
 
         Map<String, List<GrafikEntryDto>> byWorker = new LinkedHashMap<>();
+        // Seed a row for EVERY named worker (trimmed) so workers with no assignment /
+        // who are absent still appear, with their availability correctly attached.
+        for (String w : repository.findAllWorkerNames()) {
+            if (w != null && !w.trim().isEmpty()) {
+                byWorker.computeIfAbsent(w.trim(), k -> new ArrayList<>());
+            }
+        }
         for (Object[] r : rows) {
             GrafikEntryDto e = mapRow(r);
             byWorker.computeIfAbsent(e.getWorkerName(), k -> new ArrayList<>()).add(e);
@@ -129,6 +139,7 @@ public class GrafikService {
                 .orderCount(orderCount)
                 .totalHours(grandTotal)
                 .workers(workers)
+                .allWorkers(repository.findAllWorkerNames())
                 .build();
     }
 
@@ -186,6 +197,65 @@ public class GrafikService {
             }
         }
         return new ArrayList<>(byGroup.values());
+    }
+
+    /**
+     * Overdue (zaległe) orders as of today: all resources finished in the past
+     * (MAX(CZS_CzasEnd) &lt; today over ALL resources) yet the order is not closed.
+     * Grouped by order; workers/czsIds collected for display and jump.
+     */
+    public List<GrafikOverdueDto> getOverdue() {
+        LocalDate today = LocalDate.now();
+        List<Object[]> rows = repository.findOverdue(today);
+        Map<Integer, GrafikOverdueDto> byOrder = new LinkedHashMap<>();
+        for (Object[] r : rows) {
+            Integer orderId = toInt(r[0]);
+            GrafikOverdueDto o = byOrder.get(orderId);
+            if (o == null) {
+                LocalDate plannedEnd = toLocalDate(r[8]);
+                o = GrafikOverdueDto.builder()
+                        .orderId(orderId)
+                        .orderNumber(r[1] == null ? null : r[1].toString().trim())
+                        .productCode(r[2] == null ? null : r[2].toString().trim())
+                        .quantity(toBigDecimal(r[3]))
+                        .orderStatus(toInt(r[4]))
+                        .contractorName(r[5] == null ? null : r[5].toString().trim())
+                        .plannedEnd(plannedEnd == null ? null : plannedEnd.toString())
+                        .daysOverdue(plannedEnd == null ? null : (int) ChronoUnit.DAYS.between(plannedEnd, today))
+                        .workers(new ArrayList<>())
+                        .czsIds(new ArrayList<>())
+                        .build();
+                byOrder.put(orderId, o);
+            }
+            String worker = r[6] == null ? null : r[6].toString().trim();
+            if (worker != null && !worker.isBlank() && !o.getWorkers().contains(worker)) {
+                o.getWorkers().add(worker);
+            }
+            Integer czsId = toInt(r[7]);
+            if (czsId != null) {
+                o.getCzsIds().add(czsId);
+            }
+        }
+        return new ArrayList<>(byOrder.values());
+    }
+
+    private static LocalDate toLocalDate(Object o) {
+        if (o == null) {
+            return null;
+        }
+        if (o instanceof java.sql.Date d) {
+            return d.toLocalDate();
+        }
+        if (o instanceof Timestamp ts) {
+            return ts.toLocalDateTime().toLocalDate();
+        }
+        if (o instanceof LocalDate ld) {
+            return ld;
+        }
+        if (o instanceof LocalDateTime ldt) {
+            return ldt.toLocalDate();
+        }
+        return LocalDate.parse(o.toString().substring(0, 10));
     }
 
     /** Escape SQL LIKE wildcards via bracket-escaping (no ESCAPE clause needed). */
@@ -265,6 +335,7 @@ public class GrafikService {
      * {@code CZS_CzasPracy} (see {@link #effectiveMinutes}/{@link #czasPracyHours}) so
      * Comarch — which derives the resource end from CzasPracy — keeps the edit.
      */
+    @Transactional
     public GrafikEntryDto updateAssignment(Integer czsId, LocalDateTime rawStart, LocalDateTime rawEnd) {
         if (rawStart == null || rawEnd == null) {
             throw new IllegalArgumentException("startTime and endTime are required");
@@ -293,6 +364,12 @@ public class GrafikService {
         int updated = repository.updateWindow(czsId, start, end, czasPracy);
         if (updated == 0) {
             throw new IllegalArgumentException("No grafik row with czsId=" + czsId);
+        }
+
+        // Re-anchor the order header to the resource envelope so Comarch keeps our start
+        // (a resource may start >= the order start, never before → order start = MIN of resources).
+        if (row.getOrderCtnId() != null) {
+            repository.syncOrderWindowToResources(row.getOrderCtnId());
         }
 
         return GrafikEntryDto.builder()
@@ -341,6 +418,7 @@ public class GrafikService {
                 .czsId(toInt(r[0]))
                 .workerName(r[1] == null ? null : r[1].toString().trim())
                 .resourceId(toInt(r[2]))
+                .resourceName(r.length > 14 && r[14] != null ? r[14].toString().trim() : null)
                 .orderId(toInt(r[3]))
                 .orderNumber(r[4] == null ? null : r[4].toString().trim())
                 .contractorName(r[13] == null ? null : r[13].toString().trim())

@@ -21,4 +21,7 @@ public class GrafikResponseDto {
     private int orderCount;
     private BigDecimal totalHours;
     private List<GrafikWorkerDto> workers;
+    /** All named workers (Pracownicy group) so the FE can show a row for every worker,
+     *  even with no assignment or when absent. */
+    private List<String> allWorkers;
 }

@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.bianalyticsservice.controller.grafik.dto.GrafikEntryDto;
 import org.example.bianalyticsservice.controller.grafik.dto.GrafikOrderDetailDto;
+import org.example.bianalyticsservice.controller.grafik.dto.GrafikOverdueDto;
 import org.example.bianalyticsservice.controller.grafik.dto.GrafikResponseDto;
 import org.example.bianalyticsservice.controller.grafik.dto.GrafikSearchResultDto;
 import org.example.bianalyticsservice.controller.grafik.dto.UpdateAssignmentRequestDto;
@@ -76,6 +77,16 @@ public class GrafikController {
     public ResponseEntity<List<GrafikSearchResultDto>> search(@RequestParam("q") String q) {
         log.info("[searchGrafik] q={}", q);
         return ResponseEntity.ok(grafikService.search(q));
+    }
+
+    /**
+     * Overdue orders as of today: all resources finished in the past yet the order
+     * is not closed. Orders with any resource still planned today/later are excluded.
+     */
+    @GetMapping("/overdue")
+    public ResponseEntity<List<GrafikOverdueDto>> overdue() {
+        log.info("[overdueGrafik]");
+        return ResponseEntity.ok(grafikService.getOverdue());
     }
 
     /** Move/resize one plan row's time window (both ends snapped to 15 min server-side). */

@@ -35,7 +35,8 @@ public interface CtiZasobDokRepository extends JpaRepository<CtiZasobDok, Intege
             d.CZS_CzasStart                   AS startTime,
             d.CZS_CzasEnd                     AS endTime,
             d.CZS_Zakonczono                  AS finished,
-            CAST(t.TrN_OdbNazwa1 AS nvarchar(120)) AS contractorName
+            CAST(t.TrN_OdbNazwa1 AS nvarchar(120)) AS contractorName,
+            CAST(cz.CZ_Kod AS nvarchar(50))   AS resourceName
         FROM dbo.CtiZasobDok d
         INNER JOIN dbo.CtiZasob cz       ON cz.CZ_ID = d.CZS_CZID
         INNER JOIN dbo.CtiZasobGrupy g   ON g.CZG_ID = cz.CZ_CZGID AND g.CZG_Kod = 'Pracownicy'
@@ -48,12 +49,25 @@ public interface CtiZasobDokRepository extends JpaRepository<CtiZasobDok, Intege
     List<Object[]> findGrafik(@Param("from") LocalDate from, @Param("to") LocalDate to);
 
     /**
+     * All named workers (the {@code Pracownicy} resource group), so the board can
+     * render a row for every worker even on days they have no assignment / are absent.
+     */
+    @Query(value = """
+        SELECT CAST(cz.CZ_Kod AS nvarchar(50)) AS workerName
+        FROM dbo.CtiZasob cz
+        INNER JOIN dbo.CtiZasobGrupy g ON g.CZG_ID = cz.CZ_CZGID AND g.CZG_Kod = 'Pracownicy'
+        ORDER BY workerName
+        """, nativeQuery = true)
+    List<String> findAllWorkerNames();
+
+    /**
      * ACTUAL execution (rzeczywisty) for a date window — real logged work intervals
      * from dbo.CtiZlecenieZasob (the same source Analiza Pracowników uses). Column
      * order matches {@link #findGrafik} so the same row mapper/DTO is reused.
      * Worker is resolved with the analytics {@code prc_single} fallback
      * (COALESCE(prc_single.CZ_Kod, cz2.CZ_Kod)) and limited to the Pracownicy group.
-     * Open sessions ({@code ZZs_DataDo IS NULL}) are excluded.
+     * Open/in-progress sessions ({@code ZZs_DataDo IS NULL}) ARE included — their
+     * endTime comes back null and the FE cuts the tile to "now" as unfinished.
      */
     @Query(value = """
         SELECT
@@ -70,7 +84,8 @@ public interface CtiZasobDokRepository extends JpaRepository<CtiZasobDok, Intege
             z.ZZs_DataOd                                   AS startTime,
             z.ZZs_DataDo                                   AS endTime,
             z.ZZs_Zakonczono                               AS finished,
-            CAST(t.TrN_OdbNazwa1 AS nvarchar(120))         AS contractorName
+            CAST(t.TrN_OdbNazwa1 AS nvarchar(120))         AS contractorName,
+            CAST(cz2.CZ_Kod AS nvarchar(50))               AS resourceName
         FROM dbo.CtiZlecenieZasob z
         INNER JOIN dbo.CtiZasob cz2      ON z.ZZs_CZID = cz2.CZ_ID
         INNER JOIN dbo.CtiZlecenieNag n  ON n.CZN_ID = z.ZZs_CZNID
@@ -82,9 +97,8 @@ public interface CtiZasobDokRepository extends JpaRepository<CtiZasobDok, Intege
             GROUP BY zsp.ZsP_PrcId
             HAVING COUNT(DISTINCT zsp.ZsP_CZID) = 1
         ) prc_single ON prc_single.ZsP_PrcId = z.ZZs_PrcId
-        WHERE z.ZZs_DataDo IS NOT NULL
-          AND CAST(z.ZZs_DataOd AS date) <= :to
-          AND CAST(z.ZZs_DataDo AS date) >= :from
+        WHERE CAST(z.ZZs_DataOd AS date) <= :to
+          AND (z.ZZs_DataDo IS NULL OR CAST(z.ZZs_DataDo AS date) >= :from)
           AND EXISTS (
               SELECT 1 FROM dbo.CtiZasob w
               INNER JOIN dbo.CtiZasobGrupy g ON g.CZG_ID = w.CZ_CZGID AND g.CZG_Kod = 'Pracownicy'
@@ -169,7 +183,8 @@ public interface CtiZasobDokRepository extends JpaRepository<CtiZasobDok, Intege
             d.CZS_CzasStart                   AS startTime,
             d.CZS_CzasEnd                     AS endTime,
             d.CZS_Zakonczono                  AS finished,
-            CAST(t.TrN_OdbNazwa1 AS nvarchar(120)) AS contractorName
+            CAST(t.TrN_OdbNazwa1 AS nvarchar(120)) AS contractorName,
+            CAST(cz.CZ_Kod AS nvarchar(50))   AS resourceName
         FROM dbo.CtiZasobDok d
         INNER JOIN dbo.CtiZasob cz       ON cz.CZ_ID = d.CZS_CZID
         INNER JOIN dbo.CtiZasobGrupy g   ON g.CZG_ID = cz.CZ_CZGID AND g.CZG_Kod = 'Pracownicy'
@@ -184,6 +199,42 @@ public interface CtiZasobDokRepository extends JpaRepository<CtiZasobDok, Intege
             d.CZS_CzasStart DESC
         """, nativeQuery = true)
     List<Object[]> searchGrafik(@Param("like") String like, @Param("prefix") String prefix);
+
+    /**
+     * Overdue (zaległe) orders as of {@code :today}: every order whose planned end
+     * — {@code MAX(CZS_CzasEnd)} over <b>ALL</b> its resources (workers + operations) —
+     * is before today, and which is not closed ({@code CZN_Status <> 3}). Orders with
+     * any resource still planned today/later are excluded by the HAVING clause.
+     * Returns one row per named-worker plan line; the service groups by order.
+     * Columns: orderId, orderNumber, productCode, quantity, orderStatus,
+     * contractorName, workerName, czsId, plannedEnd(date).
+     */
+    @Query(value = """
+        SELECT
+            n.CZN_ID                              AS orderId,
+            CAST(n.CZN_NrPelny AS nvarchar(40))   AS orderNumber,
+            CAST(n.CZN_TwrKod  AS nvarchar(80))   AS productCode,
+            n.CZN_Ilosc                           AS quantity,
+            n.CZN_Status                          AS orderStatus,
+            CAST(t.TrN_OdbNazwa1 AS nvarchar(120)) AS contractorName,
+            CAST(cz.CZ_Kod AS nvarchar(50))       AS workerName,
+            d.CZS_ID                              AS czsId,
+            oe.max_end                            AS plannedEnd
+        FROM dbo.CtiZasobDok d
+        INNER JOIN dbo.CtiZasob cz       ON cz.CZ_ID = d.CZS_CZID
+        INNER JOIN dbo.CtiZasobGrupy g   ON g.CZG_ID = cz.CZ_CZGID AND g.CZG_Kod = 'Pracownicy'
+        INNER JOIN dbo.CtiZlecenieNag n  ON n.CZN_ID = d.CZS_CTNID
+        LEFT JOIN CDN.TraNag t           ON t.TrN_TrNID = n.CZN_DokZwiazID
+        INNER JOIN (
+            SELECT d2.CZS_CTNID, MAX(CAST(d2.CZS_CzasEnd AS date)) AS max_end
+            FROM dbo.CtiZasobDok d2
+            GROUP BY d2.CZS_CTNID
+            HAVING MAX(CAST(d2.CZS_CzasEnd AS date)) < :today
+        ) oe ON oe.CZS_CTNID = n.CZN_ID
+        WHERE n.CZN_Status <> 3
+        ORDER BY oe.max_end DESC, n.CZN_ID, workerName
+        """, nativeQuery = true)
+    List<Object[]> findOverdue(@Param("today") LocalDate today);
 
     /**
      * Resource availability windows for the {@code Pracownicy} group on a given day,
@@ -237,6 +288,26 @@ public interface CtiZasobDokRepository extends JpaRepository<CtiZasobDok, Intege
                      @Param("start") LocalDateTime start,
                      @Param("end") LocalDateTime end,
                      @Param("czasPracy") java.math.BigDecimal czasPracy);
+
+    /**
+     * Keep the order header window as the envelope of its resources:
+     * {@code CZN_CzasStart = MIN(resource starts)}, {@code CZN_CzasEnd = MAX(resource ends)}.
+     * Comarch anchors each resource to the order start (a resource may start at or
+     * AFTER the order start, never before), so after moving a resource we must lower
+     * the order start if it became the earliest — otherwise Comarch clamps it back.
+     * Does not touch other resources' rows. Requires UPDATE on
+     * CtiZlecenieNag(CZN_CzasStart, CZN_CzasEnd).
+     */
+    @Modifying
+    @Transactional
+    @Query(value = """
+        UPDATE dbo.CtiZlecenieNag
+        SET CZN_CzasStart = (SELECT MIN(CZS_CzasStart) FROM dbo.CtiZasobDok WHERE CZS_CTNID = :orderId AND CZS_DokTyp = 2),
+            CZN_CzasEnd   = (SELECT MAX(CZS_CzasEnd)   FROM dbo.CtiZasobDok WHERE CZS_CTNID = :orderId AND CZS_DokTyp = 2)
+        WHERE CZN_ID = :orderId
+          AND EXISTS (SELECT 1 FROM dbo.CtiZasobDok WHERE CZS_CTNID = :orderId AND CZS_DokTyp = 2)
+        """, nativeQuery = true)
+    int syncOrderWindowToResources(@Param("orderId") Integer orderId);
 
     /** Order quantity (CZN_Ilosc) for the order behind a plan row — used in the CzasPracy divisor. */
     @Query(value = """

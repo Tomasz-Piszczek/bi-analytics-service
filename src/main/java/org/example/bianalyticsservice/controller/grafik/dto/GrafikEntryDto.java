@@ -18,6 +18,9 @@ public class GrafikEntryDto {
     private Integer czsId;
     private String workerName;
     private Integer resourceId;
+    /** Resource the work is on (CZ_Kod). In the actual view this can differ from
+     *  workerName (e.g. person "Kamil Rygiel" logged on group resource "Wycinanie"). */
+    private String resourceName;
     private Integer orderId;
     private String orderNumber;
     /** Contractor/customer name (odbiorca on the linked RO doc); null if the order has no linked doc. */
