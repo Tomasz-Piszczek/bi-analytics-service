@@ -5,7 +5,8 @@ import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.example.bianalyticsservice.controller.employee.dto.EmployeeDto;
 import org.example.bianalyticsservice.infrastructure.events.model.EmployeeChangeEvent;
-import org.example.bianalyticsservice.infrastructure.events.outgoing.SqsEventDispatcher;
+import org.example.bianalyticsservice.infrastructure.events.outgoing.EmployeeEventDispatcher;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -19,11 +20,12 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Slf4j
+@ConditionalOnProperty(name = "employee-sync.enabled", havingValue = "true")
 public class EmployeeChangeDetectionService {
 
     private final EmployeeService employeeService;
-    private final SqsEventDispatcher sqsEventDispatcher;
-    private final String EMPLOYEE_DATA_CHANGED = "EMPLOYEE_DATA_CHANGED";
+    private final EmployeeEventDispatcher employeeEventDispatcher;
+    private static final String EMPLOYEE_DATA_CHANGED = "EMPLOYEE_DATA_CHANGED";
     
     private volatile String lastKnownHash;
 
@@ -32,19 +34,15 @@ public class EmployeeChangeDetectionService {
         List<EmployeeDto> currentEmployees = employeeService.getEmployeesFromPracownicy();
         String currentHash = calculateHash(currentEmployees);
 
-        if (lastKnownHash == null) {
-            lastKnownHash = currentHash;
-            log.info("Initial employee data hash calculated: {}", currentHash);
-            return;
-        }
-
-        if (!currentHash.equals(lastKnownHash)) {
-            log.info("Employee data change detected. Previous hash: {}, Current hash: {}",
+        if (lastKnownHash == null || !currentHash.equals(lastKnownHash)) {
+            log.info("Employee data synchronization required. Previous hash: {}, Current hash: {}",
                     lastKnownHash, currentHash);
 
             EmployeeChangeEvent event = buildEmployeeChangeEvent(currentEmployees);
-            sqsEventDispatcher.dispatchEmployeeChangeEvent(event);
+            employeeEventDispatcher.dispatchEmployeeChangeEvent(event);
 
+            // Only remember a snapshot after GearTrack API accepted it. If the API is
+            // unavailable, the scheduled invocation throws and the next run retries.
             lastKnownHash = currentHash;
         }
     }

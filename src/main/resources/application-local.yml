@@ -2,12 +2,13 @@ spring:
   application:
     name: bi-analytics-service
   datasource:
-    url: jdbc:sqlserver://localhost:1433;databaseName=CDN_F_P_U_H__Piszczek;encrypt=true;trustServerCertificate=true
+    url: "${COMARCH_DB_URL:jdbc:sqlserver://localhost:1433;databaseName=CDN_F_P_U_H__Piszczek;encrypt=true;trustServerCertificate=true}"
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
-    username: myapp
-    password: YourPassword123!
+    username: ${COMARCH_DB_USER:myapp}
+    password: ${COMARCH_DB_PASSWORD}
   jpa:
     hibernate:
+      ddl-auto: none
       naming:
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
     properties:
@@ -25,17 +26,7 @@ app:
     secret: ${JWT_SECRET:myVerySecretKeyForJWTTokensThatShouldBeAtLeast32Characters}
     expiration: 86400000
 
-aws:
-  access-key: test
-  secret-key: test
-
-sqs:
-  local-uri: http://localhost:4567
-  launch-localstack: false
-  url:
-    write:
-      employeeChangeQueue: http://sqs.eu-central-1.localhost.localstack.cloud:4567/000000000000/employeeChangeQueue
-
-localstack:
-  sqs:
-    employeeChangeQueue: http://sqs.eu-central-1.localhost.localstack.cloud:4567/000000000000/employeeChangeQueue
+employee-sync:
+  enabled: ${EMPLOYEE_SYNC_ENABLED:false}
+  base-url: ${GEARTRACK_API_INTERNAL_URL:http://127.0.0.1:8080}
+  secret: ${EMPLOYEE_SYNC_SECRET:local-development-only}
